@@ -1,0 +1,45 @@
+# Strategy and risk configuration for the Polymarket trading bot.
+# Secrets (private key, wallet address) live in .env, not here.
+
+# How often the bot scans markets, in seconds.
+polling_interval_seconds: 15
+
+markets:
+  # If non-empty, only these condition_ids / market slugs are traded.
+  # Leave empty to let the bot scan all active sampling markets.
+  whitelist: []
+  # Skip markets below this 24h volume (USD) — avoids illiquid/stale markets.
+  min_volume_usd: 5000
+  # Skip markets whose top-of-book liquidity is below this (USD).
+  min_liquidity_usd: 200
+  # Max number of markets scanned per polling cycle (keeps API usage sane).
+  max_markets_per_cycle: 200
+
+risk:
+  # Max USD committed to a single market at any time.
+  max_position_usd: 25
+  # Max USD committed across all open positions at any time.
+  max_total_exposure_usd: 200
+  # Bot stops opening new positions for the day once realized+unrealized
+  # loss reaches this amount (resets at UTC midnight).
+  max_daily_loss_usd: 50
+  # Polymarket's practical minimum order size.
+  min_order_size_usd: 1
+
+strategies:
+  arbitrage:
+    enabled: true
+    # Minimum discount below $1.00 (combined YES+NO ask price) required
+    # before acting, net of fee_buffer. E.g. 0.015 = at least 1.5c edge.
+    min_edge: 0.015
+    # Extra safety margin subtracted from the edge to account for fees/slippage.
+    fee_buffer: 0.005
+
+  threshold:
+    enabled: false
+    # Number of recent midpoint samples used to compute the reference average.
+    lookback_ticks: 20
+    # Buy when price drops this fraction below the recent average.
+    buy_drop_pct: 0.08
+    # Sell/close when price rises this fraction above the recent average.
+    sell_rise_pct: 0.08
