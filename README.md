@@ -80,6 +80,21 @@ python -m bot.main
 Stop any time with `Ctrl+C` — it finishes the current cycle and exits
 cleanly.
 
+## Dashboard
+
+A local, read-only dashboard shows live trading activity — KPIs, cumulative
+volume chart, strategy breakdown, open positions, and recent trades — read
+straight from `data/trades.csv`. No extra dependencies, nothing leaves your
+machine.
+
+```bash
+# in a second terminal, alongside `python -m bot.main`:
+python scripts/dashboard.py
+```
+
+It opens `http://127.0.0.1:8765` in your browser automatically and
+refreshes every 5 seconds.
+
 ## Running tests
 
 ```bash
@@ -127,5 +142,6 @@ bot/
 config/settings.yaml    # strategy & risk parameters (no secrets)
 .env.example             # secrets template (copy to .env)
 scripts/check_setup.py    # pre-flight sanity check
+scripts/dashboard.py       # local trading-activity dashboard
 tests/                      # pytest unit tests, no network required
 ```
