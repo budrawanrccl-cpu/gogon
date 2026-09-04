@@ -145,3 +145,158 @@ scripts/check_setup.py    # pre-flight sanity check
 scripts/dashboard.py       # local trading-activity dashboard
 tests/                      # pytest unit tests, no network required
 ```
+
+---
+
+# pump.fun Momentum Bot (Solana)
+
+A second, independent bot in this repo: an automated, **paper-trading-by-default**
+bot for [pump.fun](https://pump.fun) (Solana meme-coin bonding-curve launches),
+using the third-party [PumpPortal](https://pumpportal.fun) API for market data
+and non-custodial trade execution.
+
+> ⚠️ **Read this whole section before running this bot, especially before
+> ever setting `LIVE_TRADING=true`.** This is not the Polymarket bot above —
+> it trades a fundamentally more dangerous asset class. **The honest,
+> well-documented base rate is that the large majority of pump.fun tokens
+> lose most or all of their value**, many are deliberately designed as
+> pump-and-dump or honeypot scams, and bot vs. bot competition for the
+> fastest entries is intense. This code gives you a systematic,
+> risk-capped way to test a strategy — it does **not** give you an edge
+> against that reality, and it can lose all the SOL you fund it with.
+> Nothing here is financial advice.
+
+## How it works — and what it deliberately does *not* do
+
+```
+main loop
+  ├─ market_data: streams new-token + trade events from PumpPortal's
+  │                public WebSocket feed (read-only, no wallet involved)
+  ├─ strategy:    momentum  — buys only tokens that already show broad,
+  │                real public buying interest (min unique buyers, min buy
+  │                volume, sane market-cap range, no obvious net sell
+  │                pressure, creator not holding an outsized share)
+  ├─ risk:        approves/rejects each entry against position/exposure/
+  │                daily-loss/concurrent-position caps (all in SOL)
+  ├─ exits:       take-profit, stop-loss, trailing-stop, and a hard
+  │                max-hold-time close — checked every cycle for every
+  │                open position
+  └─ execution:   simulates the fill (paper) or signs & submits a real
+                   Solana transaction (live)
+```
+
+**This bot intentionally does not try to be the fastest sniper.** It waits
+`filters.min_token_age_seconds` (20s by default) before considering a new
+token at all, specifically so it isn't racing to buy in the same
+block/slot as token creation or trying to front-run other traders'
+pending transactions. Instead it only acts once a token already shows
+real, broad-based public interest (multiple distinct buyers, real buy
+volume). That's still highly speculative — it can and will lose money —
+but it's a rules-based filter you can explain out loud, not a latency
+arms race against professional MEV infrastructure that retail hardware
+realistically can't win anyway. It also does **not** implement any
+volume-faking / wash-trading behavior, and it will not evade platform
+rate limits or bot-detection — don't add that yourself.
+
+Every signal, filled or not, is appended to `data/pumpbot_trades.csv`.
+Logs go to the console and to `logs/pumpbot.log` (rotating).
+
+## Setup
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt   # includes solders, solana, websocket-client
+
+cp .env.example .env   # if you haven't already for the Polymarket bot
+```
+
+Edit `.env` (pump.fun section at the bottom):
+- Leave `LIVE_TRADING=false` (shared with the Polymarket bot above) to run
+  in **paper trading** — fully simulated, no transactions broadcast, no
+  wallet required. This is the default and the recommended starting point,
+  for a good while.
+- To go live later, you'll need:
+  - `SOLANA_PRIVATE_KEY` — base58 secret key (Phantom/Solflare export
+    format) or a `solana-keygen` JSON array, for the wallet that funds and
+    signs trades. **Never commit this or paste it anywhere outside your
+    local `.env`.** Signing happens locally in this process — the key is
+    never sent to PumpPortal or any RPC.
+  - `SOLANA_RPC_URL` — get a real (paid) RPC endpoint (Helius, QuickNode,
+    Triton, etc.) before going live; the free public endpoint is
+    rate-limited and unreliable for anything time-sensitive.
+  - Fund that wallet with a **small** amount of SOL you can fully afford
+    to lose. Start with an amount you'd be fine seeing go to zero.
+  - Then set `LIVE_TRADING=true`.
+
+Tune filters and risk parameters in `config/pumpbot_settings.yaml` — in
+particular `risk.max_position_sol`, `risk.max_total_exposure_sol`, and
+`risk.max_daily_loss_sol`. Start as small as the platform allows.
+
+## Running
+
+```bash
+# Sanity-check config and (in live mode) wallet/RPC connectivity:
+python scripts/check_pumpbot_setup.py
+
+# Run the bot:
+python -m pumpbot.main
+```
+
+Stop any time with `Ctrl+C` — it finishes the current cycle and exits
+cleanly (open positions are **not** auto-closed on exit; check them
+yourself).
+
+## Risks (read this)
+
+- **Most pump.fun tokens are worth ~zero shortly after launch.** Buying
+  early public momentum does not change the base rate meaningfully — it
+  just filters out the very thinnest/earliest noise.
+- **Rug pulls and honeypots are common**: a token can be sellable when you
+  buy and unsellable minutes later if liquidity is pulled or the contract
+  is malicious. Position and exposure caps limit how much any single
+  token can cost you — they do not prevent this from happening.
+  `filters.max_creator_holding_pct` is a **partial** safeguard at best:
+  the field it checks is often unavailable from the public feed, and when
+  it's unknown the bot does **not** block the trade on that basis alone.
+  It cannot detect creator wallets that are disguised, funded through
+  intermediaries, or a liquidity pull executed after purchase.
+- **This is not a guaranteed edge.** The momentum filters (buyer count,
+  volume, price range) are a reasonable systematic heuristic, not a proven
+  profitable strategy — treat paper-mode results as informative, not
+  predictive, since paper fills assume your full order fills instantly at
+  the last observed reference price with no slippage.
+- **PumpPortal is an unofficial, third-party API**, not operated by
+  pump.fun. Its endpoints, fees, rate limits, and payload field names can
+  change without notice — `pumpbot/market_data.py` and
+  `pumpbot/execution.py` parse defensively and log on unexpected shapes,
+  but you should verify against a live connection yourself before trusting
+  it in size.
+- **This code has not been run against the live PumpPortal/Solana APIs
+  from this environment** (no network access here) — treat
+  `scripts/check_pumpbot_setup.py` and a small, closely-watched live run
+  as your first real-world checks, and review the code yourself before
+  funding it.
+- The daily loss kill-switch (`risk.max_daily_loss_sol`) stops the bot
+  from *opening new* positions once hit — it does not automatically close
+  existing ones.
+
+## Project layout
+
+```
+pumpbot/
+  config.py          # loads .env + config/pumpbot_settings.yaml
+  wallet.py            # local Solana keypair loading (signing only, live mode)
+  market_data.py         # PumpPortal WebSocket feed + per-mint stat tracking
+  risk.py                  # position/exposure/concurrency/daily-loss limits (SOL)
+  exits.py                   # take-profit / stop-loss / trailing-stop / max-hold
+  execution.py                 # paper vs. live (sign-locally, submit-yourself) execution
+  journal.py                     # CSV trade log
+  main.py                          # the stream-evaluate-execute loop
+  strategies/
+    base.py                        # Signal + Strategy interface
+    momentum.py                     # early-momentum entry filter (only strategy)
+config/pumpbot_settings.yaml    # filters & risk parameters, all in SOL (no secrets)
+scripts/check_pumpbot_setup.py   # pre-flight sanity check
+tests/test_pumpbot_*.py           # pytest unit tests, no network required
+```

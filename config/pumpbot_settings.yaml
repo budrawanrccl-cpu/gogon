@@ -1,0 +1,72 @@
+# Strategy and risk configuration for the pump.fun momentum bot.
+# Secrets (Solana private key, RPC URL) live in .env, not here.
+#
+# ALL money amounts in this file are in SOL, not USD.
+
+# How often the main loop re-evaluates candidates and open positions, in seconds.
+# Event ingestion from the WebSocket feed happens continuously in the
+# background regardless of this value — this only controls how often the
+# bot *acts* on what it has seen.
+polling_interval_seconds: 2
+
+filters:
+  # Don't buy in the first few seconds after a token is created — this bot
+  # is intentionally not a raw creation-block sniper. It waits to see real,
+  # broad-based public buying interest first.
+  min_token_age_seconds: 20
+  # Give up on a candidate once it's this old without qualifying — momentum
+  # signals go stale fast on pump.fun.
+  max_token_age_seconds: 180
+  # Minimum number of distinct wallets that have bought this token.
+  min_unique_buyers: 8
+  # Minimum total SOL bought (not net) before considering a token.
+  min_buy_volume_sol: 3.0
+  # Skip if the creator wallet appears to hold more than this % of supply
+  # (rug/insider-dump risk). NOTE: this field is often unavailable from the
+  # public feed — when unknown, the bot does NOT skip based on it, so this
+  # is a partial safeguard, not a guarantee.
+  max_creator_holding_pct: 20.0
+  # Only consider tokens whose bonding-curve market cap (SOL) is in this
+  # range — filters out both "too early/thin" and "already pumped too far".
+  min_market_cap_sol: 5.0
+  max_market_cap_sol: 200.0
+  # Mints to never trade, regardless of other filters.
+  blacklist_mints: []
+  # Stop tracking a mint's stats after this long since first seen (memory
+  # cleanup for tokens that never qualified and never will).
+  watch_window_seconds: 300
+
+risk:
+  # Max SOL committed to a single token position.
+  max_position_sol: 0.05
+  # Max SOL committed across all open positions at once.
+  max_total_exposure_sol: 0.25
+  # Max number of positions open at the same time.
+  max_concurrent_positions: 5
+  # Bot stops opening new positions for the day once realized loss reaches
+  # this amount (resets at UTC midnight).
+  max_daily_loss_sol: 0.5
+  # Practical minimum order size.
+  min_order_size_sol: 0.01
+  # Sell when price is up this fraction from entry.
+  take_profit_pct: 0.5
+  # Sell when price is down this fraction from entry.
+  stop_loss_pct: 0.25
+  # Once in profit, sell if price falls this fraction from its peak since
+  # entry (locks in gains on a reversal without waiting for full stop_loss).
+  trailing_stop_pct: 0.15
+  # Force-close any position still open after this many seconds, regardless
+  # of price — pump.fun tokens that stall usually keep bleeding, not recover.
+  max_hold_seconds: 900
+
+trading:
+  # Slippage tolerance passed to PumpPortal's trade-local API, in percent.
+  slippage_pct: 10.0
+  # Priority fee (SOL) attached to each transaction to improve inclusion
+  # odds. Higher isn't "sniping faster than everyone else" here since entries
+  # are already delayed by min_token_age_seconds — it just reduces the odds
+  # of a stale/failed transaction on a congested network.
+  priority_fee_sol: 0.0005
+  # Which pool/exchange to route through (PumpPortal trade-local param).
+  # "pump" = pump.fun bonding curve.
+  pool: pump
