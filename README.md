@@ -247,6 +247,38 @@ Stop any time with `Ctrl+C` — it finishes the current cycle and exits
 cleanly (open positions are **not** auto-closed on exit; check them
 yourself).
 
+## Dashboard
+
+A local, read-only dashboard shows live trading activity — wallet balance,
+KPIs, cumulative volume + realized P&L charts, strategy breakdown, open
+positions, and recent trades — read straight from `data/pumpbot_trades.csv`.
+
+```bash
+# in a second terminal, alongside `python -m pumpbot.main`:
+python scripts/pumpbot_dashboard.py
+```
+
+It opens `http://127.0.0.1:8766` in your browser automatically and
+refreshes every 5 seconds (the wallet balance panel every 15 seconds).
+
+The trade log is 100% local. The one exception is the **wallet balance
+panel**, which makes a small, read-only `getBalance` JSON-RPC call to your
+configured `SOLANA_RPC_URL` — it needs only a **public** address, resolved
+from `SOLANA_WALLET_ADDRESS` if set, otherwise derived from
+`SOLANA_PRIVATE_KEY` if that's set. It never sends your private key
+anywhere. If neither is set, the panel just shows "not configured" and the
+rest of the dashboard works normally.
+
+Want to see what it looks like before the bot has traded anything real?
+
+```bash
+python scripts/seed_pumpbot_demo_trades.py   # writes FAKE demo trades
+python scripts/pumpbot_dashboard.py
+```
+
+Your real `data/pumpbot_trades.csv` (if any) is backed up first, never
+overwritten silently — the seed script prints how to restore it.
+
 ## Risks (read this)
 
 - **Most pump.fun tokens are worth ~zero shortly after launch.** Buying
@@ -298,5 +330,7 @@ pumpbot/
     momentum.py                     # early-momentum entry filter (only strategy)
 config/pumpbot_settings.yaml    # filters & risk parameters, all in SOL (no secrets)
 scripts/check_pumpbot_setup.py   # pre-flight sanity check
+scripts/pumpbot_dashboard.py      # local trading-activity dashboard + wallet balance
+scripts/seed_pumpbot_demo_trades.py # writes fake demo trades to preview the dashboard
 tests/test_pumpbot_*.py           # pytest unit tests, no network required
 ```
