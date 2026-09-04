@@ -105,7 +105,6 @@ INDEX_HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Polymarket Bot Dashboard</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <style>
   :root {
     --bg: #0b0e14;
@@ -191,6 +190,15 @@ INDEX_HTML = """<!doctype html>
     margin: 0 0 14px;
   }
   .chart-wrap { position: relative; height: 240px; }
+  .chart-wrap svg { width: 100%; height: 100%; display: block; }
+
+  .bars-wrap { display: flex; flex-direction: column; gap: 14px; justify-content: center; height: 240px; }
+  .bar-row { display: grid; grid-template-columns: 110px 1fr 70px; align-items: center; gap: 10px; }
+  .bar-label { font-size: 13px; text-transform: capitalize; }
+  .bar-count { color: var(--text-dim); font-size: 11px; }
+  .bar-track { background: #1c2130; border-radius: 6px; height: 10px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 6px; transition: width 0.3s ease; }
+  .bar-value { font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-dim); }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td {
@@ -255,11 +263,11 @@ INDEX_HTML = """<!doctype html>
 <div class="grid">
   <div class="panel">
     <h2>Volume Kumulatif</h2>
-    <div class="chart-wrap"><canvas id="chart-volume"></canvas></div>
+    <div class="chart-wrap"><svg id="svg-volume" viewBox="0 0 600 220" preserveAspectRatio="none"></svg></div>
   </div>
   <div class="panel">
     <h2>Per Strategi</h2>
-    <div class="chart-wrap"><canvas id="chart-strategy"></canvas></div>
+    <div class="bars-wrap" id="strategy-bars"></div>
   </div>
 </div>
 
@@ -294,44 +302,7 @@ INDEX_HTML = """<!doctype html>
 const fmtUsd = (n) => '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const fmtNum = (n) => Number(n).toLocaleString('en-US', {maximumFractionDigits: 4});
 
-let volumeChart, strategyChart;
-
-function ensureCharts() {
-  if (volumeChart) return;
-  const gridColor = 'rgba(255,255,255,0.06)';
-  const textColor = '#8b93a7';
-
-  volumeChart = new Chart(document.getElementById('chart-volume'), {
-    type: 'line',
-    data: { labels: [], datasets: [{
-      label: 'Volume kumulatif ($)',
-      data: [],
-      borderColor: '#5b8def',
-      backgroundColor: 'rgba(91,141,239,0.15)',
-      fill: true,
-      tension: 0.25,
-      pointRadius: 0,
-      borderWidth: 2,
-    }]},
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: textColor, maxTicksLimit: 6 }, grid: { color: gridColor } },
-        y: { ticks: { color: textColor, callback: (v) => '$' + v }, grid: { color: gridColor } },
-      },
-    },
-  });
-
-  strategyChart = new Chart(document.getElementById('chart-strategy'), {
-    type: 'doughnut',
-    data: { labels: [], datasets: [{ data: [], backgroundColor: ['#5b8def', '#22c3a6', '#e8b339', '#f2545b'] }] },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'bottom', labels: { color: textColor, boxWidth: 10 } } },
-    },
-  });
-}
+const STRATEGY_COLORS = ['#5b8def', '#22c3a6', '#e8b339', '#f2545b'];
 
 function renderKpis(d) {
   document.getElementById('k-signals').textContent = d.total_signals;
@@ -345,18 +316,63 @@ function renderKpis(d) {
   pnlEl.className = 'value ' + (d.realized_pnl_usd > 0 ? 'good' : d.realized_pnl_usd < 0 ? 'bad' : '');
 }
 
+// Hand-drawn SVG area chart — no external charting library needed, so the
+// dashboard works fully offline.
 function renderVolumeChart(timeline) {
-  const labels = timeline.map(p => new Date(p.t).toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit', second: '2-digit'}));
-  volumeChart.data.labels = labels;
-  volumeChart.data.datasets[0].data = timeline.map(p => p.cum_volume);
-  volumeChart.update('none');
+  const svg = document.getElementById('svg-volume');
+  const w = 600, h = 220, padL = 46, padR = 12, padT = 16, padB = 26;
+
+  if (timeline.length === 0) {
+    svg.innerHTML = `<text x="${w/2}" y="${h/2}" fill="#8b93a7" font-size="13" text-anchor="middle">Belum ada data</text>`;
+    return;
+  }
+
+  const values = timeline.map(p => p.cum_volume);
+  const maxV = Math.max(...values, 0.01);
+  const n = values.length;
+  const xStep = n > 1 ? (w - padL - padR) / (n - 1) : 0;
+  const xOf = (i) => padL + i * xStep;
+  const yOf = (v) => h - padB - (v / maxV) * (h - padT - padB);
+
+  const points = values.map((v, i) => [xOf(i), yOf(v)]);
+  const linePath = points.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+  const baseline = h - padB;
+  const areaPath = `${linePath} L${points[points.length - 1][0].toFixed(1)},${baseline} L${points[0][0].toFixed(1)},${baseline} Z`;
+
+  const firstLabel = new Date(timeline[0].t).toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit'});
+  const lastLabel = new Date(timeline[timeline.length - 1].t).toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit'});
+
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="volGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#5b8def" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="#5b8def" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <line x1="${padL}" y1="${baseline}" x2="${w - padR}" y2="${baseline}" stroke="rgba(255,255,255,0.1)"/>
+    <path d="${areaPath}" fill="url(#volGrad)" stroke="none"/>
+    <path d="${linePath}" fill="none" stroke="#5b8def" stroke-width="2"/>
+    <text x="4" y="${padT + 6}" fill="#8b93a7" font-size="11">$${maxV.toFixed(2)}</text>
+    <text x="4" y="${baseline}" fill="#8b93a7" font-size="11">$0</text>
+    <text x="${padL}" y="${h - 6}" fill="#8b93a7" font-size="11">${firstLabel}</text>
+    <text x="${w - padR}" y="${h - 6}" fill="#8b93a7" font-size="11" text-anchor="end">${lastLabel}</text>
+  `;
 }
 
 function renderStrategyChart(byStrategy) {
-  const labels = Object.keys(byStrategy);
-  strategyChart.data.labels = labels.length ? labels : ['(belum ada data)'];
-  strategyChart.data.datasets[0].data = labels.length ? labels.map(k => byStrategy[k].volume_usd) : [1];
-  strategyChart.update('none');
+  const el = document.getElementById('strategy-bars');
+  const entries = Object.entries(byStrategy);
+  if (entries.length === 0) {
+    el.innerHTML = '<div class="empty">Belum ada data strategi.</div>';
+    return;
+  }
+  const maxVol = Math.max(...entries.map(([, v]) => v.volume_usd), 0.01);
+  el.innerHTML = entries.map(([name, v], i) => `
+    <div class="bar-row">
+      <div class="bar-label">${name} <span class="bar-count">(${v.count}x)</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(v.volume_usd / maxVol * 100).toFixed(1)}%; background:${STRATEGY_COLORS[i % STRATEGY_COLORS.length]}"></div></div>
+      <div class="bar-value">${fmtUsd(v.volume_usd)}</div>
+    </div>`).join('');
 }
 
 function renderPositions(rows) {
@@ -392,7 +408,6 @@ async function refresh() {
   try {
     const res = await fetch('/api/data', { cache: 'no-store' });
     const d = await res.json();
-    ensureCharts();
     renderKpis(d);
     renderVolumeChart(d.timeline);
     renderStrategyChart(d.by_strategy);
