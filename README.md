@@ -95,6 +95,24 @@ python scripts/dashboard.py
 It opens `http://127.0.0.1:8765` in your browser automatically and
 refreshes every 5 seconds.
 
+## YouTube Content Planner
+
+A separate, unrelated local tool for planning YouTube videos — a small
+Kanban board that tracks ideas from **Ide → Riset & Skrip → Rekam → Edit →
+Terbit**, plus a template-based script outline generator. It lives
+alongside the trading bot in this repo but shares no code with it.
+
+```bash
+python scripts/content_planner.py
+```
+
+It opens `http://127.0.0.1:8766` in your browser automatically. Add a
+video idea (title, topic, target upload date), click **Lanjut →** to move
+it through stages, or **Outline** to get a hook/intro/body/CTA/outro
+skeleton for the title. Everything is stored locally in
+`data/content_ideas.json` — no external dependencies, no data sent
+anywhere.
+
 ## Running tests
 
 ```bash
@@ -143,5 +161,8 @@ config/settings.yaml    # strategy & risk parameters (no secrets)
 .env.example             # secrets template (copy to .env)
 scripts/check_setup.py    # pre-flight sanity check
 scripts/dashboard.py       # local trading-activity dashboard
-tests/                      # pytest unit tests, no network required
+content_planner/
+  storage.py                # JSON-backed video idea storage (Kanban stages)
+scripts/content_planner.py   # local YouTube content planner dashboard
+tests/                         # pytest unit tests, no network required
 ```
