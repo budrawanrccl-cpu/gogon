@@ -63,34 +63,53 @@ class TradeExecutor:
                 return False
 
         if self.live:
-            filled, tx_sig = self._execute_live(signal)
+            filled, tx_sig, token_amount = self._execute_live(signal)
         else:
-            filled, tx_sig = self._execute_paper(signal), ""
+            filled, token_amount = self._execute_paper(signal)
+            tx_sig = ""
 
-        self.journal.record(signal, mode="live" if self.live else "paper", filled=filled, tx_signature=tx_sig)
+        self.journal.record(
+            signal,
+            mode="live" if self.live else "paper",
+            filled=filled,
+            tx_signature=tx_sig,
+            token_amount=token_amount,
+        )
         return filled
 
+    def _sell_token_amount(self, signal: CopySignal) -> float:
+        """How many tokens `signal.sol_size` represents when selling: the same
+        fraction of our current position that copy_engine used to size this
+        SELL signal in the first place (it sizes off `pos.cost_sol`, not off
+        token count, since that's the number the target's own trade gave us).
+        """
+        pos = self.risk.positions.get(signal.mint)
+        if pos is None or pos.cost_sol <= 0 or pos.token_amount <= 0:
+            return 0.0
+        fraction = min(1.0, signal.sol_size / pos.cost_sol)
+        return pos.token_amount * fraction
+
     # -- paper mode: assume the trade fills at the current bonding-curve price --
-    def _execute_paper(self, signal: CopySignal) -> bool:
-        try:
-            bonding_curve = find_bonding_curve_pda(Pubkey.from_string(signal.mint))
-            account = self.rpc.get_account_info(str(bonding_curve))
-            if account:
-                data = base64.b64decode(account["data"][0])
-                curve = parse_bonding_curve_account(data)
-                lamports = int(signal.sol_size * LAMPORTS_PER_SOL)
-                if signal.side == "BUY":
+    def _execute_paper(self, signal: CopySignal) -> tuple[bool, float]:
+        if signal.side == "SELL":
+            token_amount = self._sell_token_amount(signal)
+        else:
+            try:
+                bonding_curve = find_bonding_curve_pda(Pubkey.from_string(signal.mint))
+                account = self.rpc.get_account_info(str(bonding_curve))
+                if account:
+                    data = base64.b64decode(account["data"][0])
+                    curve = parse_bonding_curve_account(data)
+                    lamports = int(signal.sol_size * LAMPORTS_PER_SOL)
                     token_amount_raw = compute_buy_tokens_out(
                         curve.virtual_sol_reserves, curve.virtual_token_reserves, lamports
                     )
+                    token_amount = token_amount_raw / (10**TOKEN_DECIMALS)
                 else:
-                    token_amount_raw = 0
-                token_amount = token_amount_raw / (10**TOKEN_DECIMALS)
-            else:
+                    token_amount = 0.0
+            except Exception:
+                logger.exception("Paper fill: could not fetch bonding curve for %s, using 0 tokens", signal.mint)
                 token_amount = 0.0
-        except Exception:
-            logger.exception("Paper fill: could not fetch bonding curve for %s, using 0 tokens", signal.mint)
-            token_amount = 0.0
 
         if signal.side == "BUY":
             self.risk.record_open(signal.mint, token_amount, signal.sol_size)
@@ -104,10 +123,10 @@ class TradeExecutor:
             signal.mint,
             signal.reason,
         )
-        return True
+        return True, token_amount
 
     # -- live mode: build, sign, and submit a real buy/sell against the bonding curve --
-    def _execute_live(self, signal: CopySignal) -> tuple[bool, str]:
+    def _execute_live(self, signal: CopySignal) -> tuple[bool, str, float]:
         assert self.keypair is not None
         mint = Pubkey.from_string(signal.mint)
         owner = self.keypair.pubkey()
@@ -118,13 +137,13 @@ class TradeExecutor:
             curve_account = self.rpc.get_account_info(str(bonding_curve_pda))
             if not global_account_data or not curve_account:
                 logger.warning("Missing global/bonding-curve account for mint %s; skipping live trade", signal.mint)
-                return False, ""
+                return False, "", 0.0
 
             global_account = parse_global_account(base64.b64decode(global_account_data["data"][0]))
             curve = parse_bonding_curve_account(base64.b64decode(curve_account["data"][0]))
             if curve.complete:
                 logger.info("Bonding curve for %s already completed (migrated); skipping", signal.mint)
-                return False, ""
+                return False, "", 0.0
 
             lamports = int(signal.sol_size * LAMPORTS_PER_SOL)
 
@@ -144,11 +163,12 @@ class TradeExecutor:
                     ),
                 ]
             else:
-                pos = self.risk.positions.get(signal.mint)
-                if pos is None or pos.token_amount <= 0:
+                # Sell the same fraction of our position that copy_engine used
+                # to size signal.sol_size — NOT the whole position.
+                token_amount_raw = int(self._sell_token_amount(signal) * (10**TOKEN_DECIMALS))
+                if token_amount_raw <= 0:
                     logger.info("No open position in %s to sell; skipping", signal.mint)
-                    return False, ""
-                token_amount_raw = int(pos.token_amount * (10**TOKEN_DECIMALS))
+                    return False, "", 0.0
                 expected_sol_out = compute_sell_sol_out(
                     curve.virtual_sol_reserves, curve.virtual_token_reserves, token_amount_raw
                 )
@@ -172,7 +192,7 @@ class TradeExecutor:
             signature = self.rpc.send_raw_transaction(raw_b64)
         except Exception:
             logger.exception("Live execution failed for %s %s", signal.side, signal.mint)
-            return False, ""
+            return False, "", 0.0
 
         # NOTE: `sendTransaction` only confirms the RPC accepted and forwarded
         # the transaction, not that it landed/succeeded on-chain. Confirm the
@@ -187,11 +207,10 @@ class TradeExecutor:
             signature,
         )
 
+        token_amount = token_amount_raw / (10**TOKEN_DECIMALS)
         if signal.side == "BUY":
-            token_amount = token_amount_raw / (10**TOKEN_DECIMALS)
             self.risk.record_open(signal.mint, token_amount, signal.sol_size)
         else:
-            token_amount = token_amount_raw / (10**TOKEN_DECIMALS)
             self.risk.record_close(signal.mint, token_amount, signal.sol_size)
 
-        return True, signature
+        return True, signature, token_amount

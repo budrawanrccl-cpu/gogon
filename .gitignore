@@ -8,4 +8,8 @@ venv/
 logs/*.log
 data/*.csv
 data/*.sqlite3
+data/pumpfun_status.json
+data/pumpfun_status.json.tmp
+data/pumpfun_control.json
+data/pumpfun_control.json.tmp
 .DS_Store

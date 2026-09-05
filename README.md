@@ -264,6 +264,28 @@ python -m pumpfun_bot.main
 Stop any time with `Ctrl+C` — it finishes the current cycle and exits
 cleanly.
 
+## Control dashboard
+
+A local dashboard shows live activity — watched wallets, KPIs, cumulative
+volume, open positions, recent trades — read straight from
+`data/pumpfun_trades.csv`, plus a **Pause/Resume** button that actually
+controls the running bot (not just a view). No extra dependencies, nothing
+leaves your machine.
+
+```bash
+# in a second terminal, alongside `python -m pumpfun_bot.main`:
+python scripts/pumpfun_dashboard.py
+```
+
+It opens `http://127.0.0.1:8766` automatically and refreshes every 5
+seconds. Pausing writes `data/pumpfun_control.json`, which the bot re-reads
+once per polling cycle — while paused it keeps scanning and logging what
+watched wallets do, it just stops copying any of it. Pausing does **not**
+touch positions you already hold. The dashboard also shows whether the bot
+process is actually running, via a heartbeat (`data/pumpfun_status.json`)
+the bot writes once per cycle — if that goes stale, the dashboard shows
+"BOT TIDAK JALAN" instead of pretending it's still active.
+
 ## Running tests
 
 ```bash
@@ -308,9 +330,12 @@ pumpfun_bot/
   risk.py                        # per-mint position/exposure/loss limits
   execution.py                    # paper vs. live trade execution
   journal.py                       # CSV trade log
-  wallet.py                         # loads a signing Keypair from .env
-  main.py                            # the scan-detect-copy loop
+  control.py                        # dashboard <-> bot pause/resume file channel
+  status.py                          # bot heartbeat file, read by the dashboard
+  wallet.py                           # loads a signing Keypair from .env
+  main.py                              # the scan-detect-copy loop
 config/pumpfun_settings.yaml    # watch list, sizing, risk parameters (no secrets)
 scripts/check_pumpfun_setup.py    # pre-flight sanity check
-tests/test_pumpfun_*.py             # pytest unit tests, no network required
+scripts/pumpfun_dashboard.py        # local control dashboard (view + pause/resume)
+tests/test_pumpfun_*.py               # pytest unit tests, no network required
 ```

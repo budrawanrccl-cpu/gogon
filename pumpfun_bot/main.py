@@ -5,12 +5,14 @@ import signal as signal_module
 import time
 
 from pumpfun_bot.config import load_settings
+from pumpfun_bot.control import read_control
 from pumpfun_bot.copy_engine import build_copy_signal
 from pumpfun_bot.execution import TradeExecutor
 from pumpfun_bot.journal import TradeJournal
 from pumpfun_bot.logger import setup_logging
 from pumpfun_bot.risk import RiskManager
 from pumpfun_bot.rpc import SolanaRpcClient
+from pumpfun_bot.status import write_status
 from pumpfun_bot.trade_detector import WalletWatcher
 from pumpfun_bot.wallet import load_keypair
 
@@ -57,11 +59,21 @@ def run() -> None:
         cycle_start = time.time()
         trades_seen = 0
         signals_executed = 0
+        paused = read_control().get("paused", False)
 
         try:
             for watcher in watchers:
                 for trade in watcher.poll(rpc):
                     trades_seen += 1
+                    if paused:
+                        logger.info(
+                            "Bot paused via dashboard — detected but not copying %s by %s on mint %s (%.4f SOL)",
+                            trade.side,
+                            trade.wallet,
+                            trade.mint,
+                            trade.sol_amount,
+                        )
+                        continue
                     signal = build_copy_signal(trade, settings.copy, settings.mints, risk)
                     if signal is None:
                         logger.info(
@@ -77,12 +89,13 @@ def run() -> None:
 
             logger.info(
                 "Cycle complete: %d target trade(s) seen | %d copied | open_positions=%d | "
-                "exposure=%.4f SOL | realized_pnl_today=%.4f SOL",
+                "exposure=%.4f SOL | realized_pnl_today=%.4f SOL%s",
                 trades_seen,
                 signals_executed,
                 len(risk.positions),
                 risk.total_exposure_sol,
                 risk.realized_pnl_today,
+                " | PAUSED" if paused else "",
             )
         except Exception:
             logger.exception("Unhandled error during scan cycle; continuing")
@@ -92,6 +105,21 @@ def run() -> None:
                 "Daily loss limit hit (realized_pnl_today=%.4f SOL) — no new positions until UTC midnight.",
                 risk.realized_pnl_today,
             )
+
+        write_status(
+            {
+                "mode": "live" if settings.wallet.live_trading else "paper",
+                "paused": paused,
+                "watched_wallets": settings.wallets_to_watch.watch,
+                "open_positions": len(risk.positions),
+                "total_exposure_sol": round(risk.total_exposure_sol, 6),
+                "realized_pnl_today_sol": round(risk.realized_pnl_today, 6),
+                "daily_loss_limit_hit": risk.daily_loss_limit_hit,
+                "last_cycle_trades_seen": trades_seen,
+                "last_cycle_copied": signals_executed,
+                "polling_interval_seconds": settings.polling_interval_seconds,
+            }
+        )
 
         elapsed = time.time() - cycle_start
         remaining = max(0.0, settings.polling_interval_seconds - elapsed)
