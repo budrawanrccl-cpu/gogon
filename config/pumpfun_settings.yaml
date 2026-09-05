@@ -1,0 +1,52 @@
+# Configuration for the pump.fun wallet copy-trading bot.
+# Secrets (private key, RPC URL) live in .env, not here.
+
+# How often to poll each watched wallet for new transactions, in seconds.
+polling_interval_seconds: 5
+
+wallets:
+  # Solana wallet addresses to watch and copy trades from.
+  # Add one or more addresses of traders you want to mirror.
+  watch: []
+  # How many historical signatures to fetch per poll (per wallet). Keep this
+  # small; the bot only acts on transactions newer than the last one it saw.
+  signatures_per_poll: 20
+
+copy:
+  # Copy a target trade sized at this fraction of the target wallet's own
+  # SOL spend, e.g. 0.1 = copy at 10% of their size. Also used to size the
+  # slice of your own position sold when mirroring a target's sell.
+  size_ratio: 0.1
+  # Hard SOL cap per single copied trade, regardless of size_ratio.
+  max_sol_per_trade: 0.5
+  # Minimum SOL size of the target's own trade before it's worth copying
+  # (filters out dust/test transactions).
+  min_target_trade_sol: 0.05
+  # Also copy the target wallet's sells (exits) on tokens the bot itself
+  # holds a position in. If false, the bot only ever mirrors buys.
+  mirror_sells: true
+  # Skip a target buy if the bot already holds a position in that mint.
+  skip_if_already_holding: true
+
+risk:
+  # Max SOL committed to a single mint at any time.
+  max_position_sol: 0.5
+  # Max SOL committed across all open positions at any time.
+  max_total_exposure_sol: 2.0
+  # Bot stops opening new positions for the day once realized loss reaches
+  # this amount (resets at UTC midnight).
+  max_daily_loss_sol: 1.0
+  # Reserved for future liquidity filtering (min bonding-curve SOL reserves).
+  min_virtual_sol_reserves: 5.0
+
+execution:
+  # Max acceptable slippage on the bonding-curve price, in basis points.
+  slippage_bps: 500
+  # Priority fee in micro-lamports per compute unit (helps land tx during congestion).
+  priority_fee_microlamports: 20000
+
+mints:
+  # If non-empty, only copy trades in these mints (allowlist).
+  whitelist: []
+  # Never copy trades in these mints, even if a watched wallet trades them.
+  blacklist: []

@@ -3,3 +3,7 @@ python-dotenv>=1.0.1
 PyYAML>=6.0.1
 requests>=2.31.0
 pytest>=8.0.0
+
+# --- pump.fun wallet copy-trading bot ---
+solders>=0.21.0
+base58>=2.1.1
