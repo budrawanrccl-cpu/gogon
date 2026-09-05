@@ -44,6 +44,24 @@ class FilterConfig:
 
 
 @dataclass
+class CopyTradeConfig:
+    """Follow specific wallets ("smart money") and mirror their buys/sells.
+
+    Disabled by default. Requires a PumpPortal API key (PUMPPORTAL_API_KEY)
+    to subscribe to per-wallet trade events — see .env.example.
+    """
+
+    enabled: bool = False
+    wallets: list[str] = field(default_factory=list)
+    copy_buys: bool = True
+    copy_sells: bool = True  # mirror the leader closing a position, even before our own TP/SL/trailing fires
+    sizing_mode: str = "fixed"  # "fixed" (risk.max_position_sol) or "proportional" (copy_ratio * leader's SOL amount)
+    copy_ratio: float = 0.01  # only used when sizing_mode == "proportional"
+    min_leader_buy_sol: float = 0.0  # ignore leader buys smaller than this (filters out dust/noise trades)
+    blacklist_mints: list[str] = field(default_factory=list)
+
+
+@dataclass
 class RiskConfig:
     max_position_sol: float = 0.05
     max_total_exposure_sol: float = 0.25
@@ -70,6 +88,7 @@ class Settings:
     filters: FilterConfig
     risk: RiskConfig
     trading: TradingConfig
+    copytrade: CopyTradeConfig
     polling_interval_seconds: float = 2.0
 
 
@@ -95,6 +114,7 @@ def load_settings(config_path: str | None = None, env_path: str | None = None) -
     filters_raw = raw.get("filters", {}) or {}
     risk_raw = raw.get("risk", {}) or {}
     trading_raw = raw.get("trading", {}) or {}
+    copytrade_raw = raw.get("copytrade", {}) or {}
 
     wallet = WalletConfig(
         private_key=os.getenv("SOLANA_PRIVATE_KEY") or None,
@@ -138,6 +158,16 @@ def load_settings(config_path: str | None = None, env_path: str | None = None) -
             priority_fee_sol=float(trading_raw.get("priority_fee_sol", 0.0005)),
             pool=str(trading_raw.get("pool", "pump")),
         ),
+        copytrade=CopyTradeConfig(
+            enabled=bool(copytrade_raw.get("enabled", False)),
+            wallets=list(copytrade_raw.get("wallets", []) or []),
+            copy_buys=bool(copytrade_raw.get("copy_buys", True)),
+            copy_sells=bool(copytrade_raw.get("copy_sells", True)),
+            sizing_mode=str(copytrade_raw.get("sizing_mode", "fixed")),
+            copy_ratio=float(copytrade_raw.get("copy_ratio", 0.01)),
+            min_leader_buy_sol=float(copytrade_raw.get("min_leader_buy_sol", 0.0)),
+            blacklist_mints=list(copytrade_raw.get("blacklist_mints", []) or []),
+        ),
         polling_interval_seconds=float(raw.get("polling_interval_seconds", 2.0)),
     )
 
@@ -145,6 +175,18 @@ def load_settings(config_path: str | None = None, env_path: str | None = None) -
         raise ValueError(
             "LIVE_TRADING=true but SOLANA_PRIVATE_KEY is not set. Refusing to start "
             "in live mode without a signing wallet."
+        )
+
+    if settings.copytrade.enabled and not settings.copytrade.wallets:
+        raise ValueError(
+            "copytrade.enabled=true in config but copytrade.wallets is empty — "
+            "add at least one wallet address to follow, or disable copytrade."
+        )
+
+    if settings.copytrade.sizing_mode not in ("fixed", "proportional"):
+        raise ValueError(
+            f"copytrade.sizing_mode must be 'fixed' or 'proportional', got "
+            f"{settings.copytrade.sizing_mode!r}"
         )
 
     return settings

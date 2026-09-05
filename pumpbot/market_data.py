@@ -23,6 +23,8 @@ import time
 from dataclasses import dataclass, field
 
 from pumpbot.config import DataConfig
+from pumpbot.parsing import num as _num
+from pumpbot.parsing import text as _str
 
 logger = logging.getLogger("pumpbot.market_data")
 
@@ -59,23 +61,6 @@ class TokenStats:
     @property
     def net_buy_volume_sol(self) -> float:
         return self.buy_volume_sol - self.sell_volume_sol
-
-
-def _num(d: dict, *keys, default=None):
-    for k in keys:
-        if d.get(k) is not None:
-            try:
-                return float(d[k])
-            except (TypeError, ValueError):
-                pass
-    return default
-
-
-def _str(d: dict, *keys, default=""):
-    for k in keys:
-        if d.get(k):
-            return str(d[k])
-    return default
 
 
 class TokenTracker:
@@ -147,6 +132,12 @@ class PumpPortalFeed:
     queue that the main loop drains synchronously — keeps the rest of the
     bot single-threaded and easy to reason about, matching the rest of the
     codebase's synchronous style.
+
+    Subscriptions (per-mint trade feeds, per-wallet account feeds) are
+    tracked here rather than by the caller, and are re-sent in full on
+    every (re)connection — PumpPortal's subscriptions are per-connection,
+    so without this, a dropped/reconnected socket would silently stop
+    delivering trade updates for everything subscribed before the drop.
     """
 
     def __init__(self, cfg: DataConfig):
@@ -155,14 +146,31 @@ class PumpPortalFeed:
         self._ws = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._known_tokens: set[str] = set()
+        self._known_accounts: set[str] = set()
+
+    def _ws_url(self) -> str:
+        # subscribeAccountTrade (copy-trading) and higher-volume
+        # subscribeTokenTrade usage require an API key per PumpPortal's
+        # docs, passed as a query param on the connection URL.
+        if self.cfg.api_key:
+            sep = "&" if "?" in self.cfg.ws_url else "?"
+            return f"{self.cfg.ws_url}{sep}api-key={self.cfg.api_key}"
+        return self.cfg.ws_url
 
     def start(self) -> None:
         import websocket  # websocket-client
 
         def on_open(ws):
             logger.info("Connected to PumpPortal data feed (%s)", self.cfg.ws_url)
-            sub = {"method": "subscribeNewToken"}
-            ws.send(json.dumps(sub))
+            ws.send(json.dumps({"method": "subscribeNewToken"}))
+            with self._lock:
+                tokens, accounts = list(self._known_tokens), list(self._known_accounts)
+            if tokens:
+                ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": tokens[:100]}))
+            if accounts:
+                ws.send(json.dumps({"method": "subscribeAccountTrade", "keys": accounts[:100]}))
 
         def on_message(ws, message):
             try:
@@ -187,7 +195,7 @@ class PumpPortalFeed:
             while not self._stop.is_set():
                 try:
                     self._ws = websocket.WebSocketApp(
-                        self.cfg.ws_url,
+                        self._ws_url(),
                         on_open=on_open,
                         on_message=on_message,
                         on_error=on_error,
@@ -208,13 +216,37 @@ class PumpPortalFeed:
         """Ask the feed to also stream trade events for specific mints
         (needed to track a candidate token's buyer count / volume after
         its creation event, and to mark price while a position is open).
+
+        Safe to call every cycle with the full current watch-list: mints
+        already subscribed are skipped, and if the socket isn't connected
+        yet, the request is queued and sent as soon as it connects.
         """
-        if not mints or self._ws is None:
-            return
-        try:
-            self._ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": mints[:100]}))
-        except Exception:
-            logger.exception("Failed to send subscribeTokenTrade for %s", mints)
+        with self._lock:
+            new = [m for m in mints if m not in self._known_tokens]
+            if not new:
+                return
+            self._known_tokens.update(new)
+        if self._ws is not None:
+            try:
+                self._ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": new[:100]}))
+            except Exception:
+                logger.exception("Failed to send subscribeTokenTrade for %s", new)
+
+    def subscribe_account_trades(self, wallets: list[str]) -> None:
+        """Ask the feed to stream every trade made by specific wallets —
+        the basis for copy-trading. Same queue-until-connected behavior as
+        subscribe_trades.
+        """
+        with self._lock:
+            new = [w for w in wallets if w not in self._known_accounts]
+            if not new:
+                return
+            self._known_accounts.update(new)
+        if self._ws is not None:
+            try:
+                self._ws.send(json.dumps({"method": "subscribeAccountTrade", "keys": new[:100]}))
+            except Exception:
+                logger.exception("Failed to send subscribeAccountTrade for %s", new)
 
     def stop(self) -> None:
         self._stop.set()

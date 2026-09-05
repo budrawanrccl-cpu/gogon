@@ -11,7 +11,7 @@ from pumpbot.journal import TradeJournal
 from pumpbot.logger import setup_logging
 from pumpbot.market_data import PumpPortalFeed, TokenTracker
 from pumpbot.risk import RiskManager
-from pumpbot.strategies import MomentumEntryStrategy
+from pumpbot.strategies import CopyTradeStrategy, MomentumEntryStrategy
 
 _stop = False
 
@@ -52,15 +52,18 @@ def run() -> None:
         keypair=keypair,
     )
     strategy = MomentumEntryStrategy(settings.filters, risk)
+    copytrade = CopyTradeStrategy(settings.copytrade, risk) if settings.copytrade.enabled else None
     tracker = TokenTracker()
 
     feed = PumpPortalFeed(settings.data)
     feed.start()
+    if copytrade is not None:
+        logger.info("Copy-trading enabled, following %d wallet(s): %s",
+                     len(copytrade.wallets), ", ".join(w[:8] + "…" for w in copytrade.wallets))
+        feed.subscribe_account_trades(copytrade.wallets)
 
     signal_module.signal(signal_module.SIGINT, _request_stop)
     signal_module.signal(signal_module.SIGTERM, _request_stop)
-
-    subscribed: set[str] = set()
 
     while not _stop:
         cycle_start = time.time()
@@ -68,25 +71,30 @@ def run() -> None:
         try:
             for event in feed.drain():
                 tracker.apply(event)
+                if copytrade is not None:
+                    sig = copytrade.on_trade_event(event.payload)
+                    if sig is not None:
+                        executor.execute(sig)
 
             # Track trades (buyer count, volume) for every candidate we've
             # seen but not yet decided on, and for every open position (to
-            # know its current price for exit rules).
+            # know its current price for exit rules). subscribe_trades is
+            # safe to call every cycle with the full list — the feed dedups
+            # internally and re-subscribes everything after a reconnect.
             watch_mints = [m for m, s in tracker.tokens.items() if not s.decided] + list(risk.positions.keys())
-            new_to_watch = [m for m in watch_mints if m not in subscribed]
-            if new_to_watch:
-                feed.subscribe_trades(new_to_watch)
-                subscribed.update(new_to_watch)
+            feed.subscribe_trades(watch_mints)
 
             tracker.prune(settings.filters.watch_window_seconds)
 
-            # -- entries --------------------------------------------------
+            # -- entries (momentum strategy) --------------------------------
             for mint, stats in list(tracker.tokens.items()):
                 sig = strategy.evaluate(stats)
                 if sig is not None:
                     executor.execute(sig)
 
-            # -- exits ------------------------------------------------------
+            # -- exits (take-profit / stop-loss / trailing / max-hold) -------
+            # Runs for every open position regardless of which strategy opened
+            # it — a copy-traded position is still subject to our own risk caps.
             for mint, pos in list(risk.positions.items()):
                 stats = tracker.tokens.get(mint)
                 current_price = stats.last_price_sol_per_token if stats else None

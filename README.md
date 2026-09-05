@@ -279,6 +279,54 @@ python scripts/pumpbot_dashboard.py
 Your real `data/pumpbot_trades.csv` (if any) is backed up first, never
 overwritten silently — the seed script prints how to restore it.
 
+## Copy-Trading (optional)
+
+A second, independent entry strategy: instead of (or alongside) the
+momentum filter, follow specific wallets and mirror their buys/sells in
+real time. Disabled by default — enable it in `config/pumpbot_settings.yaml`:
+
+```yaml
+copytrade:
+  enabled: true
+  wallets:
+    - "SomeWalletAddressYouWantToFollow111111111"
+  copy_buys: true
+  copy_sells: true      # also mirror the leader closing a position
+  sizing_mode: fixed     # or "proportional" (see the comments in the YAML)
+```
+
+How it works: the bot subscribes to PumpPortal's `subscribeAccountTrade`
+feed for the wallets you list. Every time one of them buys or sells on
+pump.fun, that event flows into `pumpbot/strategies/copytrade.py`, which
+turns it into a BUY/SELL signal — sized and risk-checked through the exact
+same `RiskManager` as the momentum strategy (same `max_position_sol`,
+`max_total_exposure_sol`, `max_concurrent_positions`, daily-loss
+kill-switch), and still subject to your own take-profit/stop-loss/
+trailing-stop/max-hold-time exits in `pumpbot/exits.py` regardless of how
+the position was opened.
+
+This requires a `PUMPPORTAL_API_KEY` in `.env` — PumpPortal gates
+per-wallet trade subscriptions behind an API key tied to a PumpPortal
+account with a small linked SOL balance. `scripts/check_pumpbot_setup.py`
+warns you if `copytrade.enabled` but no key is set.
+
+**Copy-trading risks, specifically (in addition to everything in "Risks"
+below):**
+- **A wallet's past trades are not a track record you can verify from the
+  feed alone.** You're seeing what it bought and sold, not whether it was
+  skill or luck, and not its full history or overall P&L.
+- **You are not trading at the leader's price.** There's real latency
+  between their transaction landing and yours — on a bonding curve, price
+  moves with every trade, so you will consistently do worse than "their"
+  entry, more so if other bots are copying the same wallet.
+- **A followed wallet can be paid to promote a token it's about to dump
+  on its followers**, or could simply be the token's own creator/insider
+  wallet. Following a wallet gives it no reason to trade in your interest.
+- `copy_sells: true` mirrors an exit the moment the leader sells — that's
+  usually what you want (their sell is itself informative), but it means
+  a single fast leader round-trip can open and close a position for you
+  within seconds, each incurring its own slippage/priority-fee cost.
+
 ## Risks (read this)
 
 - **Most pump.fun tokens are worth ~zero shortly after launch.** Buying
@@ -318,16 +366,18 @@ overwritten silently — the seed script prints how to restore it.
 ```
 pumpbot/
   config.py          # loads .env + config/pumpbot_settings.yaml
-  wallet.py            # local Solana keypair loading (signing only, live mode)
-  market_data.py         # PumpPortal WebSocket feed + per-mint stat tracking
-  risk.py                  # position/exposure/concurrency/daily-loss limits (SOL)
-  exits.py                   # take-profit / stop-loss / trailing-stop / max-hold
-  execution.py                 # paper vs. live (sign-locally, submit-yourself) execution
-  journal.py                     # CSV trade log
-  main.py                          # the stream-evaluate-execute loop
+  parsing.py           # shared defensive JSON-field parsing helpers
+  wallet.py              # local Solana keypair loading (signing only, live mode)
+  market_data.py           # PumpPortal WebSocket feed + per-mint stat tracking
+  risk.py                    # position/exposure/concurrency/daily-loss limits (SOL)
+  exits.py                     # take-profit / stop-loss / trailing-stop / max-hold
+  execution.py                   # paper vs. live (sign-locally, submit-yourself) execution
+  journal.py                       # CSV trade log
+  main.py                            # the stream-evaluate-execute loop
   strategies/
-    base.py                        # Signal + Strategy interface
-    momentum.py                     # early-momentum entry filter (only strategy)
+    base.py                          # Signal + Strategy interface
+    momentum.py                       # early-momentum entry filter
+    copytrade.py                       # follow & mirror specific wallets (optional)
 config/pumpbot_settings.yaml    # filters & risk parameters, all in SOL (no secrets)
 scripts/check_pumpbot_setup.py   # pre-flight sanity check
 scripts/pumpbot_dashboard.py      # local trading-activity dashboard + wallet balance

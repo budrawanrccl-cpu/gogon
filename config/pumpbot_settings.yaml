@@ -70,3 +70,31 @@ trading:
   # Which pool/exchange to route through (PumpPortal trade-local param).
   # "pump" = pump.fun bonding curve.
   pool: pump
+
+# Copy-trading: mirror specific wallets' buys/sells, in addition to (or
+# instead of — you can disable the momentum strategy above) the momentum
+# strategy. Disabled by default. Requires PUMPPORTAL_API_KEY in .env.
+# READ THE "Copy-Trading" RISKS in the README before enabling this: past
+# performance of a followed wallet does not predict future results, a
+# wallet can be paid to shill a token it's about to dump on followers, and
+# there's inherent latency between the leader's transaction and yours.
+copytrade:
+  enabled: false
+  # Wallet addresses to follow. Every BUY/SELL these wallets make on
+  # pump.fun is mirrored (subject to copy_buys/copy_sells and your risk caps).
+  wallets: []
+  copy_buys: true
+  # Mirror the leader closing a position too, even if our own take-profit /
+  # stop-loss / trailing-stop hasn't fired yet. Recommended: true — if the
+  # wallet you're following sells, that's itself a signal.
+  copy_sells: true
+  # "fixed"       — every copied buy uses your normal max_position_sol cap
+  #                 (ignores how much the leader spent).
+  # "proportional" — size = leader's SOL amount * copy_ratio, still capped
+  #                 by max_position_sol / max_total_exposure_sol.
+  sizing_mode: fixed
+  copy_ratio: 0.01
+  # Ignore leader buys smaller than this (filters out dust/noise trades).
+  min_leader_buy_sol: 0.0
+  # Mints to never copy into, regardless of what a followed wallet does.
+  blacklist_mints: []

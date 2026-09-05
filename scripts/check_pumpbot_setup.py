@@ -34,6 +34,13 @@ def main() -> int:
     print(f"  Max exposure:          {settings.risk.max_total_exposure_sol} SOL")
     print(f"  Max daily loss:        {settings.risk.max_daily_loss_sol} SOL")
     print(f"  Take profit / stop:    +{settings.risk.take_profit_pct:.0%} / -{settings.risk.stop_loss_pct:.0%}")
+    print(f"  Copytrade enabled:     {settings.copytrade.enabled}")
+    if settings.copytrade.enabled:
+        print(f"  Copytrade wallets:     {len(settings.copytrade.wallets)}")
+        print(f"  Copytrade sizing:      {settings.copytrade.sizing_mode}")
+        if not settings.data.api_key:
+            print("[WARN] copytrade is enabled but PUMPPORTAL_API_KEY is not set — "
+                  "subscribeAccountTrade may require one per PumpPortal's docs.")
 
     if settings.wallet.live_trading:
         print("\nAttempting to load signing wallet and reach your RPC (LIVE mode)...")
