@@ -1,0 +1,54 @@
+# Smart-money screener configuration for gmgn.ai.
+# Secrets (Telegram/Discord tokens, optional Cloudflare cookie) live in .env.
+
+# Chain to screen: "sol" (Solana) is where gmgn.ai's smart-money tagging is
+# richest; "eth", "base", and "bsc" are also supported by gmgn.ai.
+chain: sol
+
+# How many newly-created pairs to pull per cycle.
+new_pairs_limit: 50
+# How many recent tagged-wallet activity rows to pull per token.
+activities_limit: 100
+# How often to run a full scan cycle, in seconds.
+poll_interval_seconds: 60
+
+seen_cache_path: data/gmgn_seen.json
+signals_journal_path: data/gmgn_signals.csv
+
+api:
+  base_url: https://gmgn.ai
+  # Override via GMGN_USER_AGENT / GMGN_COOKIE in .env if gmgn.ai's
+  # Cloudflare bot-protection starts returning 403s.
+  request_timeout_seconds: 10
+  min_request_interval_seconds: 1.5
+  max_retries: 3
+
+screener:
+  # Only count smart-money activity from the last N minutes.
+  lookback_minutes: 60
+  # Minimum number of distinct tagged wallets that must have bought in the window.
+  min_smart_wallets: 3
+  # Minimum net smart-money USD flow (buys - sells) in the window.
+  min_net_buy_usd: 2000
+  # Skip tokens with less liquidity than this (USD) — avoids illiquid rugs.
+  min_liquidity_usd: 5000
+  # Skip tokens with fewer holders than this.
+  min_holder_count: 50
+  # Skip tokens where the top 10 holders own more than this percent of supply.
+  max_top_10_holder_pct: 40
+  # Ignore pairs older than this (minutes). Default: 24h.
+  max_token_age_minutes: 1440
+  # Optional market-cap band. 0 = no bound.
+  min_market_cap_usd: 0
+  max_market_cap_usd: 0
+  # A wallet's activity only counts if it carries at least one of these
+  # gmgn.ai tags. Common tags: smart_degen, pump_smart, snipe_bot, kol.
+  required_tags: [smart_degen]
+  # Skip tokens gmgn.ai flags as a honeypot.
+  exclude_honeypot: true
+
+notify:
+  # Always log signals to the console/log file.
+  console: true
+  # Don't re-alert the same token within this many minutes.
+  cooldown_minutes: 60

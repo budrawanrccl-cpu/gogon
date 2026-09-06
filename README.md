@@ -1,4 +1,16 @@
-# gogon — Polymarket Auto-Trading Bot
+# gogon
+
+This repo hosts two independent, unrelated bots:
+
+1. **[Polymarket Auto-Trading Bot](#polymarket-auto-trading-bot)** (`bot/`) —
+   places trades.
+2. **[Smart Money Screener for gmgn.ai](#smart-money-screener-for-gmgnai)**
+   (`gmgn/`) — read-only, never trades; just watches and alerts.
+
+They share no code, no config, and no data files, and can be run
+independently (in separate terminals, or not at all).
+
+## Polymarket Auto-Trading Bot
 
 An automated trading bot for [Polymarket](https://polymarket.com) built on
 Polymarket's official CLOB (Central Limit Order Book) API. It scans active
@@ -6,10 +18,10 @@ markets, applies pluggable strategies, and executes trades through a risk
 manager with hard position/exposure/loss caps.
 
 > ⚠️ **This is trading software. It can lose real money.** Read the whole
-> README, run in paper mode first, and never risk more than you can afford
+> section, run in paper mode first, and never risk more than you can afford
 > to lose. Nothing here is financial advice.
 
-## How it works
+### How it works
 
 ```
 main loop
@@ -24,7 +36,7 @@ main loop
 Every signal, filled or not, is appended to `data/trades.csv` as an audit
 trail. Logs go to the console and to `logs/bot.log` (rotating).
 
-### Why arbitrage is the default strategy
+#### Why arbitrage is the default strategy
 
 A binary Polymarket market always pays exactly $1 to the winning outcome's
 shares and $0 to the losing side. Buying **one YES share and one NO share**
@@ -39,7 +51,7 @@ The threshold (mean-reversion) strategy is included as a second option but
 ships **disabled**, because it's directional and can lose money in a
 trending market — only turn it on if you understand that risk.
 
-## Setup
+### Setup
 
 ```bash
 python3 -m venv venv
@@ -67,7 +79,7 @@ Tune strategy and risk parameters in `config/settings.yaml` — in
 particular `risk.max_position_usd`, `risk.max_total_exposure_usd`, and
 `risk.max_daily_loss_usd`. Start small.
 
-## Running
+### Running
 
 ```bash
 # Sanity-check config, wallet, and connectivity before running for real:
@@ -80,7 +92,7 @@ python -m bot.main
 Stop any time with `Ctrl+C` — it finishes the current cycle and exits
 cleanly.
 
-## Dashboard
+### Dashboard
 
 A local, read-only dashboard shows live trading activity — KPIs, cumulative
 volume chart, strategy breakdown, open positions, and recent trades — read
@@ -95,17 +107,7 @@ python scripts/dashboard.py
 It opens `http://127.0.0.1:8765` in your browser automatically and
 refreshes every 5 seconds.
 
-## Running tests
-
-```bash
-python -m pytest
-```
-
-Tests cover the pure logic (risk limits, arbitrage sizing/edge detection,
-threshold signal generation) with no network calls, so they're safe and
-fast to run anytime.
-
-## Safety notes
+### Safety notes
 
 - **Start in paper mode** and watch `data/trades.csv` / `logs/bot.log` for
   at least a few days before considering live trading.
@@ -124,24 +126,142 @@ fast to run anytime.
   as your first real-world check, and review the code yourself before
   trusting it with funds.
 
-## Project layout
+## Smart Money Screener for gmgn.ai
+
+A read-only bot that watches [gmgn.ai](https://gmgn.ai) — a popular
+Solana/multi-chain DEX analytics site — for newly-launched tokens that
+tagged **"smart money" wallets** (proven, profitable traders gmgn.ai itself
+labels `smart_degen`, `kol`, etc.) are actively accumulating. It never
+places trades; it only screens and alerts, so you can act on the signal
+yourself.
+
+> ⚠️ **gmgn.ai has no official public API.** This bot calls the same
+> undocumented JSON endpoints gmgn.ai's own website uses. They can change or
+> disappear without notice, and gmgn.ai's Cloudflare bot-protection may
+> reject requests outright. Treat this as a best-effort tool, verify it
+> works with `scripts/gmgn_check_setup.py --live` before relying on it, and
+> respect gmgn.ai's terms of use / robots.txt for however you use it. This
+> is not financial advice — smart-money activity is a signal, not a
+> guarantee.
+
+### How it works
 
 ```
-bot/
-  config.py          # loads .env + config/settings.yaml
-  client.py           # wraps py-clob-client's ClobClient
-  market_data.py       # market discovery + order book parsing
-  risk.py               # position/exposure/loss limits
-  execution.py           # paper vs. live order execution
-  journal.py              # CSV trade log
-  main.py                  # the scan-evaluate-execute loop
+poll loop (every poll_interval_seconds)
+  ├─ client:    fetch newly-created token pairs from gmgn.ai
+  ├─ client:    fetch recent tagged-wallet buy/sell activity per token
+  ├─ screener:  keep tokens where enough smart wallets are net buying,
+  │             within your liquidity / holder-concentration / age filters
+  └─ notifier:  alert (console + optional Telegram/Discord), deduped by a
+               per-token cooldown so you're not re-alerted every cycle
+```
+
+Every signal that passes the filters is appended to `data/gmgn_signals.csv`
+as an audit trail, whether or not it was still in cooldown. Logs go to the
+console and to `logs/gmgn.log` (rotating).
+
+### Setup
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env
+```
+
+Nothing in `.env` is required to run — by default the screener only logs
+to the console/`logs/gmgn.log`. Optional settings:
+- `GMGN_COOKIE` / `GMGN_USER_AGENT` — if gmgn.ai starts returning HTTP 403
+  (Cloudflare bot-protection), set `GMGN_COOKIE` to a `cf_clearance`/session
+  cookie captured from a real, logged-out gmgn.ai browser tab's dev tools,
+  and/or `GMGN_USER_AGENT` to a current browser User-Agent string.
+- `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` — also push alerts to a
+  Telegram chat via a bot you control.
+- `DISCORD_WEBHOOK_URL` — also push alerts to a Discord channel webhook.
+
+Tune screening thresholds in `config/gmgn_settings.yaml` — in particular
+`screener.min_smart_wallets`, `screener.min_net_buy_usd`,
+`screener.min_liquidity_usd`, and `screener.required_tags`. The shipped
+defaults are a reasonable starting point, not a recommendation — tighten
+them if you're getting noise, loosen them if you're getting nothing.
+
+### Running
+
+```bash
+# Sanity-check config (and, with --live, try one real request to gmgn.ai):
+python scripts/gmgn_check_setup.py --live
+
+# Run the screener:
+python -m gmgn.main
+```
+
+Stop any time with `Ctrl+C` — it finishes the current cycle and exits
+cleanly.
+
+### Safety / accuracy notes
+
+- **This bot only reads data and sends notifications — it never signs or
+  submits any transaction.** There is no wallet, private key, or funds
+  involved anywhere in `gmgn/`.
+- gmgn.ai's "smart money" tags reflect **past** profitability, not future
+  performance. Coordinated wallets, wash trading, and sniper/insider
+  activity can also produce the exact same on-chain pattern this bot looks
+  for. Always do your own research before acting on a signal.
+- The endpoint paths and JSON field names in `gmgn/client.py` are
+  best-effort, based on commonly-observed gmgn.ai response shapes — they
+  are **not** from official documentation (none exists) and may need
+  adjusting if gmgn.ai changes its site. Parsing is deliberately defensive
+  (tries several known field-name variants, skips rows it can't parse)
+  rather than crashing the whole cycle.
+- The client rate-limits itself (`api.min_request_interval_seconds`) and
+  backs off on 429/5xx — it's built for light personal screening, not
+  high-frequency polling or bulk scraping.
+- This code has not been exercised against the live gmgn.ai API from this
+  environment (outbound access to gmgn.ai is blocked here) — treat
+  `scripts/gmgn_check_setup.py --live` as your first real-world check.
+
+## Running tests
+
+```bash
+python -m pytest
+```
+
+Both bots' pure logic is unit tested with no network calls: risk limits,
+arbitrage sizing/edge detection, and threshold signal generation for the
+Polymarket bot; screening thresholds/scoring, response parsing, and
+alert-dedup/journal storage for the gmgn.ai screener.
+
+## Repository layout
+
+```
+bot/                        # Polymarket auto-trading bot
+  config.py                    # loads .env + config/settings.yaml
+  client.py                     # wraps py-clob-client's ClobClient
+  market_data.py                 # market discovery + order book parsing
+  risk.py                          # position/exposure/loss limits
+  execution.py                      # paper vs. live order execution
+  journal.py                          # CSV trade log
+  main.py                              # the scan-evaluate-execute loop
   strategies/
-    base.py                # Signal + Strategy interface
-    arbitrage.py            # complete-set arbitrage (default, on)
-    threshold.py             # mean-reversion (default, off)
-config/settings.yaml    # strategy & risk parameters (no secrets)
-.env.example             # secrets template (copy to .env)
-scripts/check_setup.py    # pre-flight sanity check
-scripts/dashboard.py       # local trading-activity dashboard
-tests/                      # pytest unit tests, no network required
+    base.py                            # Signal + Strategy interface
+    arbitrage.py                        # complete-set arbitrage (default, on)
+    threshold.py                         # mean-reversion (default, off)
+config/settings.yaml            # Polymarket bot strategy & risk parameters
+
+gmgn/                        # gmgn.ai smart-money screener (read-only)
+  config.py                    # loads .env + config/gmgn_settings.yaml
+  client.py                     # gmgn.ai HTTP client + response parsing
+  models.py                      # SmartWallet / TokenActivity / TokenStats / TokenSignal
+  screener.py                     # pure filtering + scoring logic
+  notifier.py                      # console / Telegram / Discord alerts
+  storage.py                        # alert-cooldown cache + CSV signal journal
+  main.py                            # the poll-screen-alert loop
+config/gmgn_settings.yaml    # screener thresholds & gmgn.ai endpoint config
+
+.env.example                 # secrets template for both bots (copy to .env)
+scripts/check_setup.py           # Polymarket bot pre-flight sanity check
+scripts/gmgn_check_setup.py       # gmgn.ai screener pre-flight sanity check
+scripts/dashboard.py               # local Polymarket trading-activity dashboard
+tests/                              # pytest unit tests for both bots, no network required
 ```
