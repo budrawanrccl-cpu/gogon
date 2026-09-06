@@ -16,8 +16,8 @@ def format_signal(signal: TokenSignal) -> str:
     lines = [
         f"🚨 Smart money signal: {signal.symbol or signal.address} ({signal.chain})",
         f"Address: {signal.address}",
-        f"Score: {signal.score}  |  Smart wallets buying: {signal.smart_wallet_count}  |  "
-        f"Net flow: ${signal.net_smart_buy_usd:,.0f}",
+        f"Score: {signal.score}  |  Smart buys: {signal.smart_buy_24h} / sells: {signal.smart_sell_24h}  |  "
+        f"Net: {signal.net_smart_buys:+d}",
         f"Liquidity: ${s.liquidity_usd:,.0f}  |  Market cap: ${s.market_cap_usd:,.0f}  |  "
         f"Holders: {s.holder_count}",
     ]

@@ -29,11 +29,11 @@ def main() -> int:
     print(f"  Chain:                  {settings.chain}")
     print(f"  API base URL:           {settings.api.base_url}")
     print(f"  Cookie set:             {'yes' if settings.api.cookie else 'no'}")
+    print(f"  Time period:            {settings.time_period}")
     print(f"  Poll interval:          {settings.poll_interval_seconds}s")
-    print(f"  Min smart wallets:      {settings.screener.min_smart_wallets}")
-    print(f"  Min net buy USD:        ${settings.screener.min_net_buy_usd:,.0f}")
+    print(f"  Min smart buys (24h):   {settings.screener.min_smart_buy_24h}")
+    print(f"  Min net smart buys:     {settings.screener.min_net_smart_buys}")
     print(f"  Min liquidity USD:      ${settings.screener.min_liquidity_usd:,.0f}")
-    print(f"  Required tags:          {settings.screener.required_tags}")
     print(f"  Alert cooldown:         {settings.notify.cooldown_minutes}m")
     print(f"  Telegram configured:    {'yes' if settings.notify.telegram_bot_token else 'no'}")
     print(f"  Discord configured:     {'yes' if settings.notify.discord_webhook_url else 'no'}")
@@ -44,10 +44,13 @@ def main() -> int:
             from gmgn.client import GmgnApiError, GmgnClient
 
             client = GmgnClient(settings.api)
-            pairs = client.get_new_pairs(settings.chain, limit=5)
-            print(f"[OK] Fetched {len(pairs)} new pair(s) from gmgn.ai.")
-            for p in pairs[:5]:
-                print(f"       {p.symbol or p.address} | liquidity=${p.liquidity_usd:,.0f}")
+            tokens = client.get_smart_money_tokens(settings.chain, time_period=settings.time_period, limit=5)
+            print(f"[OK] Fetched {len(tokens)} token(s) from gmgn.ai.")
+            for t in tokens[:5]:
+                print(
+                    f"       {t.symbol or t.address} | liquidity=${t.liquidity_usd:,.0f} | "
+                    f"smart_buy={t.smart_buy_24h} smart_sell={t.smart_sell_24h}"
+                )
         except GmgnApiError as e:
             print(f"[FAIL] {e}")
             print(

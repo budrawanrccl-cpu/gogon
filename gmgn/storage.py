@@ -15,12 +15,12 @@ FIELDS = [
     "address",
     "symbol",
     "score",
-    "smart_wallet_count",
-    "net_smart_buy_usd",
+    "smart_buy_24h",
+    "smart_sell_24h",
+    "net_smart_buys",
     "liquidity_usd",
     "market_cap_usd",
     "top_10_holder_pct",
-    "buy_wallets",
     "reasons",
 ]
 
@@ -75,12 +75,12 @@ class SignalJournal:
                     signal.address,
                     signal.symbol,
                     signal.score,
-                    signal.smart_wallet_count,
-                    f"{signal.net_smart_buy_usd:.2f}",
+                    signal.smart_buy_24h,
+                    signal.smart_sell_24h,
+                    signal.net_smart_buys,
                     f"{signal.stats.liquidity_usd:.2f}",
                     f"{signal.stats.market_cap_usd:.2f}",
                     "" if signal.stats.top_10_holder_pct is None else f"{signal.stats.top_10_holder_pct:.2f}",
-                    "|".join(signal.buy_wallets),
                     "; ".join(signal.reasons),
                 ]
             )

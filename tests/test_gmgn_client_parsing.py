@@ -1,4 +1,4 @@
-from gmgn.client import parse_activity, parse_token_stats, parse_wallet
+from gmgn.client import parse_token_stats, parse_wallet
 
 
 def test_parse_wallet_standard_fields():
@@ -35,28 +35,47 @@ def test_parse_wallet_missing_address_returns_none():
     assert parse_wallet({"tags": ["kol"]}, "sol") is None
 
 
-def test_parse_token_stats_standard_fields():
+def test_parse_token_stats_documented_rank_swaps_fields():
+    """Fields as documented for gmgn.ai's /rank/{chain}/swaps/{period} endpoint."""
     raw = {
         "address": "tokenA",
         "symbol": "FOO",
-        "name": "Foo Coin",
         "price": 0.01,
+        "price_change_percent": 12.5,
         "market_cap": 500000,
         "liquidity": 20000,
+        "volume": 80000,
         "holder_count": 300,
-        "top_10_holder_rate": 25.5,
-        "open_timestamp": 1700000000,
+        "buys": 120,
+        "sells": 40,
+        "smart_buy_24h": 5,
+        "smart_sell_24h": 1,
+        "sniper_count": 3,
+        "bluechip_owner_percentage": 45.0,
+        "buy_tax": 0.0,
+        "sell_tax": 5.0,
         "is_honeypot": False,
         "renounced": True,
+        "lockInfo": {"isLock": True, "lockPercent": 80.0},
     }
     stats = parse_token_stats(raw, "sol")
     assert stats is not None
     assert stats.address == "tokenA"
     assert stats.symbol == "FOO"
     assert stats.liquidity_usd == 20000
-    assert stats.top_10_holder_pct == 25.5
+    assert stats.volume_usd == 80000
+    assert stats.holder_count == 300
+    assert stats.buys == 120
+    assert stats.sells == 40
+    assert stats.smart_buy_24h == 5
+    assert stats.smart_sell_24h == 1
+    assert stats.sniper_count == 3
+    assert stats.bluechip_owner_pct == 45.0
+    assert stats.buy_tax_pct == 0.0
+    assert stats.sell_tax_pct == 5.0
     assert stats.is_honeypot is False
     assert stats.is_renounced is True
+    assert stats.lock_pct == 80.0
 
 
 def test_parse_token_stats_alternate_address_field():
@@ -68,31 +87,16 @@ def test_parse_token_stats_alternate_address_field():
     assert stats.holder_count == 5
 
 
+def test_parse_token_stats_missing_optional_fields_default_to_none():
+    stats = parse_token_stats({"address": "tokenC"}, "sol")
+    assert stats is not None
+    assert stats.sniper_count is None
+    assert stats.bluechip_owner_pct is None
+    assert stats.buy_tax_pct is None
+    assert stats.lock_pct is None
+    assert stats.smart_buy_24h == 0
+    assert stats.smart_sell_24h == 0
+
+
 def test_parse_token_stats_missing_address_returns_none():
     assert parse_token_stats({"symbol": "FOO"}, "sol") is None
-
-
-def test_parse_activity_buy_event():
-    raw = {
-        "wallet_address": "walletA",
-        "event_type": "BUY",
-        "tags": ["smart_degen"],
-        "amount_usd": 1234.5,
-        "price": 0.02,
-        "timestamp": 1700000000,
-    }
-    activity = parse_activity(raw, "sol", "tokenA")
-    assert activity is not None
-    assert activity.side == "buy"
-    assert activity.wallet_address == "walletA"
-    assert activity.amount_usd == 1234.5
-    assert activity.token_address == "tokenA"
-
-
-def test_parse_activity_invalid_side_returns_none():
-    raw = {"wallet_address": "walletA", "event_type": "transfer"}
-    assert parse_activity(raw, "sol", "tokenA") is None
-
-
-def test_parse_activity_missing_wallet_returns_none():
-    assert parse_activity({"event_type": "buy"}, "sol", "tokenA") is None

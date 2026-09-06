@@ -19,36 +19,38 @@ class SmartWallet:
 
 
 @dataclass
-class TokenActivity:
-    """A single buy/sell event on a token, attributed to a tagged wallet."""
-
-    chain: str
-    token_address: str
-    wallet_address: str
-    wallet_tags: list[str]
-    side: str  # "buy" or "sell"
-    amount_usd: float
-    price_usd: float
-    timestamp: int  # unix seconds
-
-
-@dataclass
 class TokenStats:
-    """Aggregated stats/security info for one token, as reported by gmgn.ai."""
+    """A token row from gmgn.ai's rank/swaps leaderboard: trading stats, security
+    flags, and smart-money buy/sell counts all in one response — no separate
+    per-token activity fetch needed.
+    """
 
     chain: str
     address: str
     symbol: str = ""
     name: str = ""
     price_usd: float = 0.0
+    price_change_pct: float | None = None
     market_cap_usd: float = 0.0
     liquidity_usd: float = 0.0
+    volume_usd: float = 0.0
     holder_count: int = 0
-    top_10_holder_pct: float | None = None
-    open_timestamp: int | None = None  # unix seconds the pair was created
+    buys: int = 0
+    sells: int = 0
+    smart_buy_24h: int = 0
+    smart_sell_24h: int = 0
+    sniper_count: int | None = None
+    bluechip_owner_pct: float | None = None
+    buy_tax_pct: float | None = None
+    sell_tax_pct: float | None = None
+    lock_pct: float | None = None
     is_honeypot: bool | None = None
     is_renounced: bool | None = None
-    burn_ratio: float | None = None
+    # Not reliably present on the rank/swaps endpoint (kept for forward
+    # compatibility / other endpoints that do return them) — filters that
+    # depend on these simply don't trigger when left None.
+    top_10_holder_pct: float | None = None
+    open_timestamp: int | None = None  # unix seconds the pair was created
 
 
 @dataclass
@@ -59,8 +61,8 @@ class TokenSignal:
     address: str
     symbol: str
     score: float
-    smart_wallet_count: int
-    net_smart_buy_usd: float
-    buy_wallets: list[str]
+    smart_buy_24h: int
+    smart_sell_24h: int
+    net_smart_buys: int
     reasons: list[str]
     stats: TokenStats

@@ -2,13 +2,13 @@
 # Secrets (Telegram/Discord tokens, optional Cloudflare cookie) live in .env.
 
 # Chain to screen: "sol" (Solana) is where gmgn.ai's smart-money tagging is
-# richest; "eth", "base", and "bsc" are also supported by gmgn.ai.
+# richest; "eth", "bsc", "base", and "tron" are also supported by gmgn.ai.
 chain: sol
 
-# How many newly-created pairs to pull per cycle.
-new_pairs_limit: 50
-# How many recent tagged-wallet activity rows to pull per token.
-activities_limit: 100
+# gmgn.ai's rank/swaps window: 1m, 5m, 1h, 6h, or 24h.
+time_period: 24h
+# How many tokens to pull per cycle (from the smart-money-ranked leaderboard).
+tokens_limit: 50
 # How often to run a full scan cycle, in seconds.
 poll_interval_seconds: 60
 
@@ -24,28 +24,32 @@ api:
   max_retries: 3
 
 screener:
-  # Only count smart-money activity from the last N minutes.
-  lookback_minutes: 60
-  # Minimum number of distinct tagged wallets that must have bought in the window.
-  min_smart_wallets: 3
-  # Minimum net smart-money USD flow (buys - sells) in the window.
-  min_net_buy_usd: 2000
+  # Minimum smart-money buy transactions in the period.
+  min_smart_buy_24h: 3
+  # Minimum net smart-money buys (smart_buy_24h - smart_sell_24h) in the period.
+  min_net_smart_buys: 2
   # Skip tokens with less liquidity than this (USD) — avoids illiquid rugs.
   min_liquidity_usd: 5000
   # Skip tokens with fewer holders than this.
   min_holder_count: 50
-  # Skip tokens where the top 10 holders own more than this percent of supply.
-  max_top_10_holder_pct: 40
-  # Ignore pairs older than this (minutes). Default: 24h.
-  max_token_age_minutes: 1440
   # Optional market-cap band. 0 = no bound.
   min_market_cap_usd: 0
   max_market_cap_usd: 0
-  # A wallet's activity only counts if it carries at least one of these
-  # gmgn.ai tags. Common tags: smart_degen, pump_smart, snipe_bot, kol.
-  required_tags: [smart_degen]
+  # Optional safety filters based on gmgn.ai's reported tax/sniper/holder-quality
+  # fields. 0 = disabled (not enforced).
+  max_buy_tax_pct: 0
+  max_sell_tax_pct: 0
+  max_sniper_count: 0
+  min_bluechip_owner_pct: 0
   # Skip tokens gmgn.ai flags as a honeypot.
   exclude_honeypot: true
+  # Require the contract's mint/owner authority to be renounced.
+  require_renounced: false
+  # Kept for forward compatibility with endpoints/fields gmgn.ai doesn't
+  # reliably return today on the rank/swaps endpoint (top-10 holder
+  # concentration, pair-creation timestamp) — harmless no-ops until then.
+  max_top_10_holder_pct: 40
+  max_token_age_minutes: 1440
 
 notify:
   # Always log signals to the console/log file.

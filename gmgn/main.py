@@ -1,8 +1,9 @@
 """Entry point: python -m gmgn.main
 
-Polls gmgn.ai for newly-created tokens, checks each one's recent tagged
-"smart money" wallet activity against the configured thresholds, and raises
-an alert for anything that passes. Read-only: this bot never places trades.
+Polls gmgn.ai's rank/swaps leaderboard for tokens smart-money wallets are
+buying, checks each one's stats and buy/sell counts against the configured
+thresholds, and raises an alert for anything that passes. Read-only: this
+bot never places trades.
 """
 from __future__ import annotations
 
@@ -49,21 +50,16 @@ def run() -> None:
         signals_found = 0
 
         try:
-            candidates = client.get_new_pairs(settings.chain, limit=settings.new_pairs_limit)
+            candidates = client.get_smart_money_tokens(
+                settings.chain, time_period=settings.time_period, limit=settings.tokens_limit
+            )
             logger.info("Fetched %d candidate token(s) from gmgn.ai", len(candidates))
 
             for stats in candidates:
                 if _stop:
                     break
-                try:
-                    activities = client.get_token_activities(
-                        settings.chain, stats.address, limit=settings.activities_limit
-                    )
-                except GmgnApiError:
-                    logger.exception("Failed to fetch activity for token %s", stats.address)
-                    continue
 
-                signal = screener.evaluate(stats, activities)
+                signal = screener.evaluate(stats)
                 if signal is None:
                     continue
 

@@ -148,10 +148,11 @@ yourself.
 
 ```
 poll loop (every poll_interval_seconds)
-  ├─ client:    fetch newly-created token pairs from gmgn.ai
-  ├─ client:    fetch recent tagged-wallet buy/sell activity per token
-  ├─ screener:  keep tokens where enough smart wallets are net buying,
-  │             within your liquidity / holder-concentration / age filters
+  ├─ client:    fetch gmgn.ai's rank/swaps leaderboard — tokens ranked by
+  │             smart-money buying, with trading stats, tax/sniper/holder
+  │             quality flags, and smart buy/sell counts all in one response
+  ├─ screener:  keep tokens with enough net smart-money buying, within your
+  │             liquidity / market-cap / tax / sniper-count filters
   └─ notifier:  alert (console + optional Telegram/Discord), deduped by a
                per-token cooldown so you're not re-alerted every cycle
 ```
@@ -181,10 +182,13 @@ to the console/`logs/gmgn.log`. Optional settings:
 - `DISCORD_WEBHOOK_URL` — also push alerts to a Discord channel webhook.
 
 Tune screening thresholds in `config/gmgn_settings.yaml` — in particular
-`screener.min_smart_wallets`, `screener.min_net_buy_usd`,
-`screener.min_liquidity_usd`, and `screener.required_tags`. The shipped
-defaults are a reasonable starting point, not a recommendation — tighten
-them if you're getting noise, loosen them if you're getting nothing.
+`screener.min_smart_buy_24h`, `screener.min_net_smart_buys`, and
+`screener.min_liquidity_usd`. Optional safety filters (`max_buy_tax_pct`,
+`max_sniper_count`, `min_bluechip_owner_pct`, `require_renounced`) are off
+by default (`0` / `false`) — turn them on once you've seen what gmgn.ai
+actually returns for your chain. The shipped defaults are a reasonable
+starting point, not a recommendation — tighten them if you're getting
+noise, loosen them if you're getting nothing.
 
 ### Running
 
@@ -208,12 +212,13 @@ cleanly.
   performance. Coordinated wallets, wash trading, and sniper/insider
   activity can also produce the exact same on-chain pattern this bot looks
   for. Always do your own research before acting on a signal.
-- The endpoint paths and JSON field names in `gmgn/client.py` are
-  best-effort, based on commonly-observed gmgn.ai response shapes — they
-  are **not** from official documentation (none exists) and may need
-  adjusting if gmgn.ai changes its site. Parsing is deliberately defensive
-  (tries several known field-name variants, skips rows it can't parse)
-  rather than crashing the whole cycle.
+- The main endpoint (`get_smart_money_tokens`, `/rank/{chain}/swaps/{period}`)
+  follows gmgn.ai's most consistently community-documented shape; the wallet
+  leaderboard endpoint (`get_smart_wallets`) is less consistently documented
+  and more speculative. Neither is from official documentation (none
+  exists) and either may need adjusting if gmgn.ai changes its site.
+  Parsing is deliberately defensive (tries several known field-name
+  variants, skips rows it can't parse) rather than crashing the whole cycle.
 - The client rate-limits itself (`api.min_request_interval_seconds`) and
   backs off on 429/5xx — it's built for light personal screening, not
   high-frequency polling or bulk scraping.
@@ -252,7 +257,7 @@ config/settings.yaml            # Polymarket bot strategy & risk parameters
 gmgn/                        # gmgn.ai smart-money screener (read-only)
   config.py                    # loads .env + config/gmgn_settings.yaml
   client.py                     # gmgn.ai HTTP client + response parsing
-  models.py                      # SmartWallet / TokenActivity / TokenStats / TokenSignal
+  models.py                      # SmartWallet / TokenStats / TokenSignal
   screener.py                     # pure filtering + scoring logic
   notifier.py                      # console / Telegram / Discord alerts
   storage.py                        # alert-cooldown cache + CSV signal journal

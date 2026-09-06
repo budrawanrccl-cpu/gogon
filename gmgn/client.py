@@ -4,10 +4,15 @@ gmgn.ai does not publish or support a public API — there is no ToS covering
 programmatic access, and the endpoints below are the same JSON calls its own
 web frontend makes. That means:
 
-  * They are undocumented and can change or disappear without notice. The
-    field names parsed below are best-effort, based on the shapes gmgn.ai's
-    site is commonly observed to return; verify them for yourself with
-    `scripts/gmgn_check_setup.py` before trusting this in production.
+  * They are undocumented and can change or disappear without notice.
+    `get_smart_money_tokens` targets `/defi/quotation/v1/rank/{chain}/swaps/
+    {time_period}`, which is the most consistently community-documented
+    gmgn.ai endpoint (used by several independent open-source gmgn.ai
+    clients) — its query params and response field names below are based on
+    that documentation, not guesswork. `get_smart_wallets`
+    (`/rank/{chain}/wallets/{period}`) is less consistently documented;
+    treat its field names as best-effort. Either can still drift — verify
+    with `scripts/gmgn_check_setup.py --live` before trusting this.
   * gmgn.ai sits behind Cloudflare bot-protection. A plain `requests` call
     without a browser-like User-Agent (and sometimes a `cf_clearance`
     cookie captured from a real browser session, set via `GMGN_COOKIE`)
@@ -28,7 +33,7 @@ import time
 import requests
 
 from gmgn.config import ApiConfig
-from gmgn.models import SmartWallet, TokenActivity, TokenStats
+from gmgn.models import SmartWallet, TokenStats
 
 logger = logging.getLogger("smartmoney.client")
 
@@ -48,7 +53,7 @@ def _num(raw: dict, *keys, default=None):
     return default
 
 
-def _int(raw: dict, *keys, default=0) -> int:
+def _int(raw: dict, *keys, default: int | None = 0) -> int | None:
     v = _num(raw, *keys, default=None)
     return int(v) if v is not None else default
 
@@ -74,13 +79,22 @@ def parse_wallet(raw: dict, chain: str) -> SmartWallet | None:
 
 
 def parse_token_stats(raw: dict, chain: str) -> TokenStats | None:
-    """Parse one token/pair row from a `new_pair` listing or token-info endpoint."""
+    """Parse one row of a `/rank/{chain}/swaps/{period}` response.
+
+    Field names follow gmgn.ai's documented rank/swaps shape: address,
+    symbol, price, market_cap, liquidity, volume, holder_count, buys/sells,
+    smart_buy_24h/smart_sell_24h, sniper_count, bluechip_owner_percentage,
+    buy_tax/sell_tax, is_honeypot/renounced, and a nested lockInfo.lockPercent.
+    A few legacy/alternate field names are still accepted as fallbacks in
+    case gmgn.ai returns a slightly different shape for a given chain/period.
+    """
     address = raw.get("address") or raw.get("base_address") or raw.get("token_address")
     if not address:
         return None
 
     honeypot = raw.get("is_honeypot")
-    renounced = raw.get("renounced") or raw.get("is_renounced")
+    renounced = raw.get("renounced") if raw.get("renounced") is not None else raw.get("is_renounced")
+    lock_info = raw.get("lockInfo") or {}
 
     return TokenStats(
         chain=chain,
@@ -88,37 +102,24 @@ def parse_token_stats(raw: dict, chain: str) -> TokenStats | None:
         symbol=str(raw.get("symbol", "")),
         name=str(raw.get("name", "")),
         price_usd=_num(raw, "price", "price_usd", default=0.0) or 0.0,
+        price_change_pct=_num(raw, "price_change_percent", "change24h"),
         market_cap_usd=_num(raw, "market_cap", "market_cap_usd", "usd_market_cap", default=0.0) or 0.0,
         liquidity_usd=_num(raw, "liquidity", "liquidity_usd", default=0.0) or 0.0,
+        volume_usd=_num(raw, "volume", "volume_usd", default=0.0) or 0.0,
         holder_count=_int(raw, "holder_count", "holders"),
-        top_10_holder_pct=_num(raw, "top_10_holder_rate", "top_10_holder_pct"),
-        open_timestamp=_int(raw, "open_timestamp", "created_timestamp", default=0) or None,
+        buys=_int(raw, "buys", "buy_count"),
+        sells=_int(raw, "sells", "sell_count"),
+        smart_buy_24h=_int(raw, "smart_buy_24h", "smart_buy"),
+        smart_sell_24h=_int(raw, "smart_sell_24h", "smart_sell"),
+        sniper_count=_int(raw, "sniper_count", default=None),
+        bluechip_owner_pct=_num(raw, "bluechip_owner_percentage"),
+        buy_tax_pct=_num(raw, "buy_tax"),
+        sell_tax_pct=_num(raw, "sell_tax"),
+        lock_pct=_num(lock_info, "lockPercent") if isinstance(lock_info, dict) else None,
         is_honeypot=bool(honeypot) if honeypot is not None else None,
         is_renounced=bool(renounced) if renounced is not None else None,
-        burn_ratio=_num(raw, "burn_ratio", "burn_pct"),
-    )
-
-
-def parse_activity(raw: dict, chain: str, token_address: str) -> TokenActivity | None:
-    """Parse one row of a token/wallet smart-money activity feed."""
-    wallet = raw.get("wallet_address") or raw.get("maker") or raw.get("address")
-    if not wallet:
-        return None
-    side = str(raw.get("event_type") or raw.get("side") or "").lower()
-    if side not in ("buy", "sell"):
-        return None
-    tags = raw.get("tags") or raw.get("wallet_tags") or []
-    if isinstance(tags, str):
-        tags = [tags]
-    return TokenActivity(
-        chain=chain,
-        token_address=token_address,
-        wallet_address=str(wallet),
-        wallet_tags=[str(t) for t in tags],
-        side=side,
-        amount_usd=_num(raw, "amount_usd", "usd_amount", "cost_usd", default=0.0) or 0.0,
-        price_usd=_num(raw, "price_usd", "price", default=0.0) or 0.0,
-        timestamp=_int(raw, "timestamp", "event_time", default=0),
+        top_10_holder_pct=_num(raw, "top_10_holder_rate", "top_10_holder_pct"),
+        open_timestamp=_int(raw, "open_timestamp", "created_timestamp", default=0) or None,
     )
 
 
@@ -198,30 +199,23 @@ class GmgnClient:
         wallets = [w for w in (parse_wallet(r, chain) for r in rows) if w is not None]
         return wallets
 
-    def get_new_pairs(self, chain: str, limit: int = 50) -> list[TokenStats]:
-        """Recently-created token pairs for a chain, newest first."""
+    def get_smart_money_tokens(
+        self, chain: str, time_period: str = "24h", limit: int = 50
+    ) -> list[TokenStats]:
+        """Tokens ranked by smart-money buying activity, with trading stats and
+        security flags all included in the same response — no follow-up
+        per-token request needed.
+        """
         data = self._get(
-            f"/defi/quotation/v1/pairs/{chain}/new_pair",
-            params={"limit": limit, "orderby": "open_timestamp", "direction": "desc"},
+            f"/defi/quotation/v1/rank/{chain}/swaps/{time_period}",
+            params={
+                "orderby": "smartmoney",
+                "direction": "desc",
+                "limit": limit,
+                "filters[]": "not_honeypot",
+            },
         )
-        rows = (data.get("data") or {}).get("pairs", []) if isinstance(data, dict) else []
+        rows = (data.get("data") or {}).get("rank", []) if isinstance(data, dict) else []
         if not rows and isinstance(data, dict):
             rows = data.get("data") or []  # some responses put the list directly under "data"
         return [t for t in (parse_token_stats(r, chain) for r in rows) if t is not None]
-
-    def get_token_stats(self, chain: str, token_address: str) -> TokenStats | None:
-        """Detailed stats for a single token."""
-        data = self._get(f"/defi/quotation/v1/tokens/{chain}/{token_address}")
-        row = data.get("data") if isinstance(data, dict) else None
-        if not isinstance(row, dict):
-            return None
-        return parse_token_stats(row, chain)
-
-    def get_token_activities(self, chain: str, token_address: str, limit: int = 100) -> list[TokenActivity]:
-        """Recent tagged-wallet buy/sell activity for a single token."""
-        data = self._get(
-            f"/vas/api/v1/token_activities/{chain}/{token_address}",
-            params={"limit": limit},
-        )
-        rows = (data.get("data") or {}).get("activities", []) if isinstance(data, dict) else []
-        return [a for a in (parse_activity(r, chain, token_address) for r in rows) if a is not None]

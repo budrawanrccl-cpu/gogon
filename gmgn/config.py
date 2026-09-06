@@ -4,7 +4,7 @@ and YAML (screening thresholds).
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import yaml
 from dotenv import load_dotenv
@@ -34,17 +34,22 @@ class ApiConfig:
 
 @dataclass
 class ScreenerConfig:
-    lookback_minutes: int = 60  # only consider smart-money activity newer than this
-    min_smart_wallets: int = 3  # distinct tagged wallets that must have bought
-    min_net_buy_usd: float = 2000.0  # smart-money buy volume minus sell volume, in the window
+    min_smart_buy_24h: int = 3  # min smart-money buy transactions in the period
+    min_net_smart_buys: int = 2  # smart_buy_24h - smart_sell_24h must be at least this
     min_liquidity_usd: float = 5000.0
     min_holder_count: int = 50
-    max_top_10_holder_pct: float = 40.0  # skip tokens with heavy holder concentration
-    max_token_age_minutes: int = 1440  # ignore pairs older than this (default: 24h)
     min_market_cap_usd: float = 0.0
     max_market_cap_usd: float = 0.0  # 0 = no cap
-    required_tags: list[str] = field(default_factory=lambda: ["smart_degen"])
+    max_buy_tax_pct: float = 0.0  # 0 = disabled
+    max_sell_tax_pct: float = 0.0  # 0 = disabled
+    max_sniper_count: int = 0  # 0 = disabled
+    min_bluechip_owner_pct: float = 0.0  # 0 = disabled
     exclude_honeypot: bool = True
+    require_renounced: bool = False
+    # Kept for forward compatibility with endpoints/fields gmgn.ai doesn't
+    # reliably return today (see TokenStats) — harmless no-ops until then.
+    max_top_10_holder_pct: float = 40.0
+    max_token_age_minutes: int = 1440
 
 
 @dataclass
@@ -62,8 +67,8 @@ class Settings:
     screener: ScreenerConfig
     notify: NotifyConfig
     chain: str = "sol"
-    new_pairs_limit: int = 50
-    activities_limit: int = 100
+    time_period: str = "24h"  # gmgn.ai rank/swaps window: 1m, 5m, 1h, 6h, or 24h
+    tokens_limit: int = 50
     poll_interval_seconds: int = 60
     seen_cache_path: str = "data/gmgn_seen.json"
     signals_journal_path: str = "data/gmgn_signals.csv"
@@ -102,17 +107,20 @@ def load_settings(config_path: str | None = None, env_path: str | None = None) -
     )
 
     screener = ScreenerConfig(
-        lookback_minutes=int(screener_raw.get("lookback_minutes", 60)),
-        min_smart_wallets=int(screener_raw.get("min_smart_wallets", 3)),
-        min_net_buy_usd=float(screener_raw.get("min_net_buy_usd", 2000.0)),
+        min_smart_buy_24h=int(screener_raw.get("min_smart_buy_24h", 3)),
+        min_net_smart_buys=int(screener_raw.get("min_net_smart_buys", 2)),
         min_liquidity_usd=float(screener_raw.get("min_liquidity_usd", 5000.0)),
         min_holder_count=int(screener_raw.get("min_holder_count", 50)),
-        max_top_10_holder_pct=float(screener_raw.get("max_top_10_holder_pct", 40.0)),
-        max_token_age_minutes=int(screener_raw.get("max_token_age_minutes", 1440)),
         min_market_cap_usd=float(screener_raw.get("min_market_cap_usd", 0.0)),
         max_market_cap_usd=float(screener_raw.get("max_market_cap_usd", 0.0)),
-        required_tags=list(screener_raw.get("required_tags", ["smart_degen"]) or []),
+        max_buy_tax_pct=float(screener_raw.get("max_buy_tax_pct", 0.0)),
+        max_sell_tax_pct=float(screener_raw.get("max_sell_tax_pct", 0.0)),
+        max_sniper_count=int(screener_raw.get("max_sniper_count", 0)),
+        min_bluechip_owner_pct=float(screener_raw.get("min_bluechip_owner_pct", 0.0)),
         exclude_honeypot=bool(screener_raw.get("exclude_honeypot", True)),
+        require_renounced=bool(screener_raw.get("require_renounced", False)),
+        max_top_10_holder_pct=float(screener_raw.get("max_top_10_holder_pct", 40.0)),
+        max_token_age_minutes=int(screener_raw.get("max_token_age_minutes", 1440)),
     )
 
     notify = NotifyConfig(
@@ -128,8 +136,8 @@ def load_settings(config_path: str | None = None, env_path: str | None = None) -
         screener=screener,
         notify=notify,
         chain=os.getenv("GMGN_CHAIN", raw.get("chain", "sol")),
-        new_pairs_limit=int(raw.get("new_pairs_limit", 50)),
-        activities_limit=int(raw.get("activities_limit", 100)),
+        time_period=os.getenv("GMGN_TIME_PERIOD", raw.get("time_period", "24h")),
+        tokens_limit=int(raw.get("tokens_limit", 50)),
         poll_interval_seconds=int(os.getenv("GMGN_POLL_INTERVAL_SECONDS", raw.get("poll_interval_seconds", 60))),
         seen_cache_path=raw.get("seen_cache_path", "data/gmgn_seen.json"),
         signals_journal_path=raw.get("signals_journal_path", "data/gmgn_signals.csv"),
