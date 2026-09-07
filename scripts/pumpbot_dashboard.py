@@ -42,6 +42,7 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv()
 
 TRADES_CSV = os.path.join(_ROOT, "data", "pumpbot_trades.csv")
+WATCHLIST_JSON = os.path.join(_ROOT, "data", "pumpbot_watchlist.json")
 PORT = int(os.environ.get("PUMPBOT_DASHBOARD_PORT", "8766"))
 # Default stays loopback-only (safe: nothing but this computer can reach it).
 # Set PUMPBOT_DASHBOARD_HOST=0.0.0.0 to also accept connections from other
@@ -126,6 +127,21 @@ def load_trades() -> list[dict]:
         return []
     with open(TRADES_CSV, newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+def load_watchlist() -> list[dict]:
+    """New-token-launches feed, written by pumpbot/main.py each cycle
+    (data/pumpbot_watchlist.json). Empty/missing file (bot not running
+    yet, or hasn't completed a cycle) is not an error — just nothing to
+    show yet.
+    """
+    if not os.path.exists(WATCHLIST_JSON):
+        return []
+    try:
+        with open(WATCHLIST_JSON, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []  # caught mid-write despite the atomic rename, or bot not running
 
 
 def build_summary(rows: list[dict]) -> dict:
@@ -360,6 +376,19 @@ INDEX_HTML = """<!doctype html>
   <div class="kpi"><div class="label">Realized P&amp;L</div><div class="value" id="k-pnl">&ndash;</div></div>
 </div>
 
+<div class="panel">
+  <h2>🚀 Peluncuran Token Baru (Live)</h2>
+  <div class="table-scroll">
+    <table id="tbl-watchlist">
+      <thead><tr><th>Terdeteksi</th><th>Token</th><th class="num">Umur</th><th class="num">Pembeli</th><th class="num">Vol Beli (SOL)</th><th class="num">Market Cap (SOL)</th><th>Status</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="empty" id="empty-watchlist" hidden>
+      Belum ada token terdeteksi. Pastikan <code>python -m pumpbot.main</code> sedang berjalan.
+    </div>
+  </div>
+</div>
+
 <div class="grid">
   <div class="panel">
     <h2>Volume Kumulatif (SOL)</h2>
@@ -530,6 +559,30 @@ function renderTrades(rows) {
     </tr>`).join('');
 }
 
+function renderWatchlist(rows) {
+  const tbody = document.querySelector('#tbl-watchlist tbody');
+  document.getElementById('empty-watchlist').hidden = rows.length > 0;
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td>${new Date(r.first_seen).toLocaleTimeString('id-ID')}</td>
+      <td title="${r.mint}">${r.name ? r.name + ' ' : ''}${r.symbol ? '($' + r.symbol + ')' : r.mint.slice(0, 8) + '…'}</td>
+      <td class="num">${r.age_seconds < 60 ? Math.round(r.age_seconds) + 's' : Math.round(r.age_seconds / 60) + 'm'}</td>
+      <td class="num">${r.unique_buyers}</td>
+      <td class="num">${fmtSol(r.buy_volume_sol)}</td>
+      <td class="num">${r.market_cap_sol !== null && r.market_cap_sol !== undefined ? Number(r.market_cap_sol).toFixed(1) : '?'}</td>
+      <td><span class="badge ${r.decided ? 'filled-yes' : 'filled-no'}">${r.decided ? 'selesai' : 'dipantau'}</span></td>
+    </tr>`).join('');
+}
+
+async function refreshWatchlist() {
+  try {
+    const res = await fetch('/api/watchlist', { cache: 'no-store' });
+    renderWatchlist(await res.json());
+  } catch (e) {
+    // silent — the trades/status indicator already surfaces connectivity issues
+  }
+}
+
 async function refreshTrades() {
   const statusEl = document.getElementById('status');
   const statusText = document.getElementById('status-text');
@@ -562,7 +615,9 @@ async function refreshBalance() {
 
 refreshTrades();
 refreshBalance();
+refreshWatchlist();
 setInterval(refreshTrades, 5000);
+setInterval(refreshWatchlist, 3000);
 setInterval(refreshBalance, 15000);
 </script>
 </body>
@@ -587,6 +642,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(build_summary(load_trades()))
         elif self.path.startswith("/api/balance"):
             self._send_json(get_wallet_balance())
+        elif self.path.startswith("/api/watchlist"):
+            self._send_json(load_watchlist())
         else:
             body = INDEX_HTML.encode("utf-8")
             self.send_response(200)

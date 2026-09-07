@@ -8,4 +8,6 @@ venv/
 logs/*.log
 data/*.csv
 data/*.sqlite3
+data/*.json
+data/*.json.tmp
 .DS_Store

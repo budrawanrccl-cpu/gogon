@@ -253,8 +253,8 @@ yourself).
 ## Dashboard
 
 A local, read-only dashboard shows live trading activity — wallet balance,
-KPIs, cumulative volume + realized P&L charts, strategy breakdown, open
-positions, and recent trades — read straight from `data/pumpbot_trades.csv`.
+a live feed of new token launches, KPIs, cumulative volume + realized P&L
+charts, strategy breakdown, open positions, and recent trades.
 
 ```bash
 # in a second terminal, alongside `python -m pumpbot.main`:
@@ -262,7 +262,17 @@ python scripts/pumpbot_dashboard.py
 ```
 
 It opens `http://127.0.0.1:8766` in your browser automatically and
-refreshes every 5 seconds (the wallet balance panel every 15 seconds).
+refreshes every 5 seconds (the new-launches feed every 3 seconds; the
+wallet balance panel every 15 seconds).
+
+**"Peluncuran Token Baru" (new token launches)**: every token pump.fun's
+feed shows the bot, with its live age/buyer-count/volume/market-cap and
+whether the momentum strategy has finished evaluating it ("dipantau" =
+still deciding, "selesai" = decided — bought, or passed over). This comes
+from `pumpbot/main.py` writing a snapshot of its in-memory tracker to
+`data/pumpbot_watchlist.json` every cycle (the bot and dashboard are
+separate processes, so this file is how the dashboard sees it) — it's
+only populated while `python -m pumpbot.main` is actually running.
 
 The trade log is 100% local. The one exception is the **wallet balance
 panel**, which makes a small, read-only `getBalance` JSON-RPC call to your

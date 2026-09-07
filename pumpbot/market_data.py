@@ -21,6 +21,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from pumpbot.config import DataConfig
 from pumpbot.parsing import num as _num
@@ -125,6 +126,31 @@ class TokenTracker:
         stale = [m for m, s in self.tokens.items() if s.age_seconds > max_age_seconds]
         for m in stale:
             del self.tokens[m]
+
+    def snapshot(self) -> list[dict]:
+        """Plain-dict view of every currently-tracked token, newest first —
+        for the dashboard's "new token launches" panel. main.py writes this
+        to a JSON file each cycle since the dashboard runs in a separate
+        process and has no other way to see in-memory tracker state.
+        """
+        rows = [
+            {
+                "mint": s.mint,
+                "symbol": s.symbol,
+                "name": s.name,
+                "first_seen": datetime.fromtimestamp(s.first_seen, tz=timezone.utc).isoformat(),
+                "age_seconds": round(s.age_seconds, 1),
+                "unique_buyers": len(s.unique_buyers),
+                "buy_volume_sol": round(s.buy_volume_sol, 4),
+                "sell_volume_sol": round(s.sell_volume_sol, 4),
+                "market_cap_sol": s.market_cap_sol,
+                "last_price_sol_per_token": s.last_price_sol_per_token,
+                "decided": s.decided,
+            }
+            for s in self.tokens.values()
+        ]
+        rows.sort(key=lambda r: r["first_seen"], reverse=True)
+        return rows
 
 
 class PumpPortalFeed:

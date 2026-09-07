@@ -1,6 +1,8 @@
 """Entry point: python -m pumpbot.main"""
 from __future__ import annotations
 
+import json
+import os
 import signal as signal_module
 import time
 
@@ -15,10 +17,28 @@ from pumpbot.strategies import CopyTradeStrategy, MomentumEntryStrategy
 
 _stop = False
 
+WATCHLIST_PATH = os.path.join("data", "pumpbot_watchlist.json")
+
 
 def _request_stop(signum, frame):
     global _stop
     _stop = True
+
+
+def _write_watchlist_snapshot(tracker: TokenTracker) -> None:
+    """Dump the tracker's current state to a JSON file for the dashboard's
+    "new token launches" panel — the dashboard runs in a separate process
+    and has no other way to see this in-memory state. Written atomically
+    (temp file + rename) so the dashboard never reads a half-written file.
+    """
+    try:
+        os.makedirs(os.path.dirname(WATCHLIST_PATH) or ".", exist_ok=True)
+        tmp_path = WATCHLIST_PATH + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(tracker.snapshot(), f)
+        os.replace(tmp_path, WATCHLIST_PATH)
+    except Exception:
+        pass  # best-effort; never let a monitoring file write break the bot
 
 
 def run() -> None:
@@ -85,6 +105,7 @@ def run() -> None:
             feed.subscribe_trades(watch_mints)
 
             tracker.prune(settings.filters.watch_window_seconds)
+            _write_watchlist_snapshot(tracker)
 
             # -- entries (momentum strategy) --------------------------------
             for mint, stats in list(tracker.tokens.items()):
