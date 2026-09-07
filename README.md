@@ -95,6 +95,41 @@ python scripts/dashboard.py
 It opens `http://127.0.0.1:8765` in your browser automatically and
 refreshes every 5 seconds.
 
+## Keeping it running 24/7 (Windows laptop)
+
+If you're running this on a Windows laptop and want it to keep trading
+even when you close the lid or aren't watching it, three things need to
+be true: the laptop stays powered on, the bot process stays alive, and it
+restarts itself if it ever crashes. `scripts/windows/` has helpers for
+all three — run these in an **elevated (Administrator) PowerShell**
+prompt from the repo root:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+
+# 1. Stop the laptop from sleeping/dimming while plugged in
+#    (battery behavior is left untouched, so it still sleeps when unplugged).
+.\scripts\windows\keep_awake.ps1
+
+# 2. Register a scheduled task that launches the bot at logon and
+#    auto-restarts it if it ever exits/crashes.
+.\scripts\windows\install_scheduled_task.ps1
+```
+
+Notes:
+- Keep the charger plugged in — `keep_awake.ps1` only disables sleep on
+  AC power, on purpose, so the laptop still behaves normally on battery.
+- The scheduled task runs under your logged-in user session, so you need
+  to stay logged in (locking the screen is fine; logging out is not).
+- `scripts\windows\run_bot_forever.ps1` is the supervisor loop itself —
+  it wraps `python -m bot.main`, retries with backoff on crashes, and
+  logs restarts to `logs\supervisor.log`. You can also run it directly
+  in a terminal instead of installing the scheduled task.
+- This only keeps the *process* alive. It does not change any risk
+  limits — review `config/settings.yaml` and the **Safety notes** above
+  before letting anything run unattended for long periods, especially in
+  live trading mode.
+
 ## Running tests
 
 ```bash
