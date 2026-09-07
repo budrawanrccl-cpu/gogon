@@ -416,6 +416,31 @@ below):**
 - The daily loss kill-switch (`risk.max_daily_loss_sol`) stops the bot
   from *opening new* positions once hit — it does not automatically close
   existing ones.
+- **Open positions are not persisted across restarts.** `RiskManager`
+  starts empty every time `python -m pumpbot.main` runs — it has no file
+  or database backing it. If you restart the bot while it holds a
+  position (especially right after a failed SELL, e.g. from a transient
+  RPC error), the bot "forgets" it ever held that token, even though the
+  tokens are still sitting in your wallet on-chain — its own exit rules
+  will no longer apply to that token. Check your wallet's actual holdings
+  on [Solscan](https://solscan.io) after any restart to catch this, and
+  use `scripts/sell_token.py <mint>` to sell such a token manually — see
+  below.
+
+## Manually selling a token (`scripts/sell_token.py`)
+
+```bash
+python scripts/sell_token.py <mint_address>
+```
+
+Sells 100% of your wallet's actual on-chain holdings of that mint,
+independent of whatever the bot's own in-memory tracking thinks — the
+main use case is recovering a position orphaned by a restart (see the
+persistence caveat above). Uses the exact same signing/submission path as
+the bot's own live trades. Requires `LIVE_TRADING=true` and
+`SOLANA_PRIVATE_KEY` set in `.env`, and asks for confirmation before
+sending (pass `--yes` to skip the prompt). There's no partial-sell option
+here — use Phantom/Solflare's swap feature if you need that.
 
 ## Project layout
 
