@@ -38,9 +38,17 @@ def main() -> int:
     if settings.copytrade.enabled:
         print(f"  Copytrade wallets:     {len(settings.copytrade.wallets)}")
         print(f"  Copytrade sizing:      {settings.copytrade.sizing_mode}")
-        if not settings.data.api_key:
-            print("[WARN] copytrade is enabled but PUMPPORTAL_API_KEY is not set — "
-                  "subscribeAccountTrade may require one per PumpPortal's docs.")
+
+    print(f"  PumpPortal API key:    {'set' if settings.data.api_key else 'NOT SET'}")
+    if not settings.data.api_key:
+        print(
+            "[WARN] PUMPPORTAL_API_KEY is not set. subscribeTokenTrade (per-token buy/sell "
+            "data — what the momentum strategy counts unique buyers and volume from) requires "
+            "one; without it the bot sees new tokens but never their trades, so "
+            "min_unique_buyers can never be satisfied and it will never buy anything. "
+            "Get one at pumpportal.fun (connect a wallet, fund it with a small amount of SOL, "
+            "generate a key) and set it in .env."
+        )
 
     if settings.wallet.live_trading:
         print("\nAttempting to load signing wallet and reach your RPC (LIVE mode)...")

@@ -212,10 +212,20 @@ cp .env.example .env   # if you haven't already for the Polymarket bot
 ```
 
 Edit `.env` (pump.fun section at the bottom):
+- **`PUMPPORTAL_API_KEY` — required even in paper mode, not just for live
+  trading or copytrade.** `subscribeNewToken` (new-token detection) is
+  free, but `subscribeTokenTrade` — the per-token buy/sell feed the
+  momentum strategy counts unique buyers and volume from — requires a
+  PumpPortal API key. Without it, the bot sees new tokens appear but never
+  their trades, so `filters.min_unique_buyers` can never be satisfied and
+  it will never generate a single signal, paper or live, however long you
+  leave it running. Get one at [pumpportal.fun](https://pumpportal.fun):
+  connect a wallet, fund it with a small amount of SOL, generate a key.
 - Leave `LIVE_TRADING=false` (shared with the Polymarket bot above) to run
   in **paper trading** — fully simulated, no transactions broadcast, no
-  wallet required. This is the default and the recommended starting point,
-  for a good while.
+  signing wallet required (the PumpPortal API key above is a separate,
+  unrelated thing — it's for reading data, not for signing). This is the
+  default and the recommended starting point, for a good while.
 - To go live later, you'll need:
   - `SOLANA_PRIVATE_KEY` — base58 secret key (Phantom/Solflare export
     format) or a `solana-keygen` JSON array, for the wallet that funds and
@@ -345,10 +355,10 @@ kill-switch), and still subject to your own take-profit/stop-loss/
 trailing-stop/max-hold-time exits in `pumpbot/exits.py` regardless of how
 the position was opened.
 
-This requires a `PUMPPORTAL_API_KEY` in `.env` — PumpPortal gates
-per-wallet trade subscriptions behind an API key tied to a PumpPortal
-account with a small linked SOL balance. `scripts/check_pumpbot_setup.py`
-warns you if `copytrade.enabled` but no key is set.
+This needs the same `PUMPPORTAL_API_KEY` the base setup above already
+requires (PumpPortal gates per-wallet trade subscriptions behind it too) —
+if you've already got the momentum strategy generating signals, you're
+already set here.
 
 **Copy-trading risks, specifically (in addition to everything in "Risks"
 below):**
