@@ -26,9 +26,6 @@ import time
 
 import requests
 
-MAX_SUBMIT_ATTEMPTS = 3
-RETRY_DELAY_SECONDS = 1.5
-
 from pumpbot.config import DataConfig, TradingConfig, WalletConfig
 from pumpbot.journal import TradeJournal
 from pumpbot.risk import RiskManager
@@ -36,6 +33,14 @@ from pumpbot.solana_rpc import send_raw_transaction as _send_raw_transaction
 from pumpbot.strategies.base import Signal
 
 logger = logging.getLogger("pumpbot.execution")
+
+# skipPreflight=true (solana_rpc.py) already fixes the main cause of
+# repeated BlockhashNotFound failures. These retries are a second safety
+# net for ordinary transient issues (a slow response, a brief network
+# blip) — each attempt re-fetches a fresh transaction from PumpPortal
+# (fresh blockhash) rather than resubmitting stale signed bytes.
+MAX_SUBMIT_ATTEMPTS = 5
+RETRY_DELAY_SECONDS = 1.5
 
 
 class OrderExecutor:
