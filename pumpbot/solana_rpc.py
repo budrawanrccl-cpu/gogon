@@ -35,6 +35,21 @@ def get_balance_sol(rpc_url: str, address: str, timeout: float = 10.0) -> float:
 def send_raw_transaction(rpc_url: str, raw_tx: bytes, timeout: float = 20.0) -> str:
     """Submit a fully-signed transaction via the sendTransaction RPC method.
     Returns the transaction signature. Raises on any RPC-level error.
+
+    skipPreflight=True: without it, the RPC node runs its own local
+    simulation before forwarding the transaction, using *its own* view of
+    recent blockhashes — if that specific node is even slightly behind,
+    it rejects with "Transaction simulation failed: BlockhashNotFound"
+    even though the transaction (built by PumpPortal, against a different
+    node) is actually valid and would land fine. Skipping preflight lets
+    the actual network/leader decide instead of one RPC node's local
+    (possibly stale) view. This is the standard fix for exactly this
+    failure mode — see
+    https://www.helius.dev/blog/how-to-deal-with-blockhash-errors-on-solana.
+    The tradeoff: some other real errors (e.g. insufficient funds) that
+    preflight would have caught early now only surface on-chain instead —
+    acceptable here since nothing in this codebase relies on preflight's
+    early rejection for correctness.
     """
     resp = requests.post(
         rpc_url,
@@ -44,7 +59,7 @@ def send_raw_transaction(rpc_url: str, raw_tx: bytes, timeout: float = 20.0) -> 
             "method": "sendTransaction",
             "params": [
                 base64.b64encode(raw_tx).decode("ascii"),
-                {"encoding": "base64", "skipPreflight": False, "maxRetries": 3},
+                {"encoding": "base64", "skipPreflight": True, "maxRetries": 3},
             ],
         },
         timeout=timeout,
