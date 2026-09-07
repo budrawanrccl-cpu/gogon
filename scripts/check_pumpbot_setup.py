@@ -54,12 +54,11 @@ def main() -> int:
             return 1
 
         try:
-            from solana.rpc.api import Client as SolanaClient
+            from pumpbot.solana_rpc import get_balance_sol
 
-            rpc = SolanaClient(settings.wallet.rpc_url)
-            balance = rpc.get_balance(keypair.pubkey()).value
-            print(f"[OK] RPC reachable. Wallet balance: {balance / 1_000_000_000:.6f} SOL")
-            if balance == 0:
+            balance_sol = get_balance_sol(settings.wallet.rpc_url, str(keypair.pubkey()))
+            print(f"[OK] RPC reachable. Wallet balance: {balance_sol:.6f} SOL")
+            if balance_sol == 0:
                 print("[WARN] Wallet balance is 0 — fund it before going live.")
         except Exception as e:
             print(f"[WARN] Could not fetch wallet balance from RPC: {e}")

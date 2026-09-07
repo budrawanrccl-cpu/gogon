@@ -14,6 +14,10 @@ change over time; the parsing below is defensive and logs the raw response
 on failure rather than assuming a shape. Verify against a live call before
 trusting this in size, and reconcile fills against your wallet's actual
 token balance periodically rather than trusting the journal alone.
+
+Transactions are submitted via pumpbot.solana_rpc's plain JSON-RPC
+sendTransaction call rather than the `solana` package's RPC client — see
+that module's docstring for why.
 """
 from __future__ import annotations
 
@@ -24,6 +28,7 @@ import requests
 from pumpbot.config import DataConfig, TradingConfig, WalletConfig
 from pumpbot.journal import TradeJournal
 from pumpbot.risk import RiskManager
+from pumpbot.solana_rpc import send_raw_transaction as _send_raw_transaction
 from pumpbot.strategies.base import Signal
 
 logger = logging.getLogger("pumpbot.execution")
@@ -88,7 +93,6 @@ class OrderExecutor:
 
     # -- live mode: build via PumpPortal, sign locally, submit to your own RPC ---
     def _execute_live(self, signal: Signal) -> tuple[bool, str]:
-        from solana.rpc.api import Client as SolanaClient
         from solders.transaction import VersionedTransaction
 
         try:
@@ -124,9 +128,7 @@ class OrderExecutor:
             return False, ""
 
         try:
-            rpc = SolanaClient(self.wallet_cfg.rpc_url)
-            send_resp = rpc.send_raw_transaction(bytes(signed_tx))
-            tx_sig = str(send_resp.value)
+            tx_sig = _send_raw_transaction(self.wallet_cfg.rpc_url, bytes(signed_tx))
         except Exception:
             logger.exception("Failed to submit transaction for %s", signal.mint)
             return False, ""

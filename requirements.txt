@@ -7,5 +7,3 @@ pytest>=8.0.0
 # --- pump.fun bot (pumpbot/) ---
 websocket-client>=1.7.0
 solders>=0.21.0
-solana>=0.34.0
-base58>=2.1.1

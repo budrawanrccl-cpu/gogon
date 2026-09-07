@@ -110,19 +110,10 @@ def get_wallet_balance() -> dict:
         return result
 
     try:
-        import requests
+        from pumpbot.solana_rpc import get_balance_sol
 
-        resp = requests.post(
-            RPC_URL,
-            json={"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]},
-            timeout=8,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-        if "error" in payload:
-            raise RuntimeError(str(payload["error"]))
-        lamports = payload["result"]["value"]
-        result = {"address": address, "balance_sol": lamports / 1_000_000_000, "error": None}
+        balance_sol = get_balance_sol(RPC_URL, address, timeout=8.0)
+        result = {"address": address, "balance_sol": balance_sol, "error": None}
     except Exception as e:
         result = {"address": address, "balance_sol": None, "error": f"Gagal ambil saldo dari RPC: {e}"}
 
