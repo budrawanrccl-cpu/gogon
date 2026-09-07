@@ -235,9 +235,15 @@ Edit `.env` (pump.fun section at the bottom):
     bot** — not one you also trade from manually or keep meaningful funds
     in. `python scripts/generate_wallet.py` generates a fresh one offline
     (no wallet app needed) and prints exactly what to paste into `.env`.
-  - `SOLANA_RPC_URL` — get a real (paid) RPC endpoint (Helius, QuickNode,
-    Triton, etc.) before going live; the free public endpoint is
-    rate-limited and unreliable for anything time-sensitive.
+  - `SOLANA_RPC_URL` — **get a dedicated RPC endpoint before going live,
+    not the free public one.** In practice, `api.mainnet-beta.solana.com`
+    is slow/inconsistent enough that live buy/sell transactions can fail
+    with `BlockhashNotFound` (the transaction's embedded recent-blockhash
+    expires — normal within ~60-90s — before it reaches that node). The
+    bot retries each live trade a few times against fresh blockhashes, but
+    a bad RPC can still exhaust all of them. [Helius](https://helius.dev)
+    has a free tier that's a large step up and takes a couple of minutes
+    to sign up for; QuickNode and Triton are other options.
   - Fund that wallet with a **small** amount of SOL you can fully afford
     to lose. Start with an amount you'd be fine seeing go to zero.
   - Then set `LIVE_TRADING=true`.

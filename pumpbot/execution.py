@@ -22,8 +22,12 @@ that module's docstring for why.
 from __future__ import annotations
 
 import logging
+import time
 
 import requests
+
+MAX_SUBMIT_ATTEMPTS = 3
+RETRY_DELAY_SECONDS = 1.5
 
 from pumpbot.config import DataConfig, TradingConfig, WalletConfig
 from pumpbot.journal import TradeJournal
@@ -93,6 +97,42 @@ class OrderExecutor:
 
     # -- live mode: build via PumpPortal, sign locally, submit to your own RPC ---
     def _execute_live(self, signal: Signal) -> tuple[bool, str]:
+        # Each attempt fetches a *fresh* unsigned transaction from PumpPortal
+        # (i.e. a fresh recent-blockhash) rather than retrying the same signed
+        # bytes — a Solana transaction's blockhash expires after ~60-90s, so
+        # retrying a stale one would just fail again with the same
+        # "BlockhashNotFound" error. This is common with slow/congested or
+        # free public RPC endpoints; get a dedicated RPC (Helius, QuickNode,
+        # Triton, etc.) if this keeps happening — see the README.
+        last_error = ""
+        for attempt in range(1, MAX_SUBMIT_ATTEMPTS + 1):
+            tx_sig, error = self._attempt_live_trade(signal)
+            if tx_sig:
+                logger.info(
+                    "[LIVE] %s %s (%s) ~%.6f SOL — tx=%s — %s",
+                    signal.side, signal.mint, signal.symbol, signal.size_sol, tx_sig, signal.reason,
+                )
+                self._record_fill(signal)
+                return True, tx_sig
+
+            last_error = error
+            if attempt < MAX_SUBMIT_ATTEMPTS:
+                logger.warning(
+                    "Live %s attempt %d/%d failed for %s (%s): %s — retrying",
+                    signal.side, attempt, MAX_SUBMIT_ATTEMPTS, signal.mint, signal.symbol, error,
+                )
+                time.sleep(RETRY_DELAY_SECONDS)
+
+        logger.error(
+            "Live %s failed for %s (%s) after %d attempts: %s",
+            signal.side, signal.mint, signal.symbol, MAX_SUBMIT_ATTEMPTS, last_error,
+        )
+        return False, ""
+
+    def _attempt_live_trade(self, signal: Signal) -> tuple[str, str]:
+        """One fetch-sign-submit attempt. Returns (tx_signature, "") on
+        success, or ("", error_message) on failure.
+        """
         from solders.transaction import VersionedTransaction
 
         try:
@@ -112,32 +152,30 @@ class OrderExecutor:
             )
             resp.raise_for_status()
             raw_tx_bytes = resp.content  # PumpPortal returns the serialized unsigned tx bytes directly
-        except Exception:
+        except Exception as e:
             logger.exception("Failed to fetch unsigned transaction from PumpPortal for %s", signal.mint)
-            return False, ""
+            return "", f"fetch failed: {e}"
 
         try:
             unsigned_tx = VersionedTransaction.from_bytes(raw_tx_bytes)
             signed_tx = VersionedTransaction(unsigned_tx.message, [self.keypair])
-        except Exception:
+        except Exception as e:
             logger.exception(
                 "Failed to sign transaction for %s — response may not have been a raw tx "
                 "(check for a JSON error body): %.300s",
                 signal.mint, raw_tx_bytes[:300],
             )
-            return False, ""
+            return "", f"sign failed: {e}"
 
         try:
             tx_sig = _send_raw_transaction(self.wallet_cfg.rpc_url, bytes(signed_tx))
-        except Exception:
+        except Exception as e:
             logger.exception("Failed to submit transaction for %s", signal.mint)
-            return False, ""
+            return "", f"submit failed: {e}"
 
-        logger.info(
-            "[LIVE] %s %s (%s) ~%.6f SOL — tx=%s — %s",
-            signal.side, signal.mint, signal.symbol, signal.size_sol, tx_sig, signal.reason,
-        )
+        return tx_sig, ""
 
+    def _record_fill(self, signal: Signal) -> None:
         # NOTE: submission succeeding does not guarantee on-chain confirmation
         # or the exact fill price/slippage. Reconcile against your wallet's
         # actual SPL token balances periodically rather than trusting this
@@ -150,5 +188,3 @@ class OrderExecutor:
             pos = self.risk.positions.get(signal.mint)
             sell_amount = pos.token_amount if pos else token_amount
             self.risk.record_close(signal.mint, sell_amount, signal.size_sol)
-
-        return True, tx_sig
