@@ -221,7 +221,10 @@ Edit `.env` (pump.fun section at the bottom):
     format) or a `solana-keygen` JSON array, for the wallet that funds and
     signs trades. **Never commit this or paste it anywhere outside your
     local `.env`.** Signing happens locally in this process — the key is
-    never sent to PumpPortal or any RPC.
+    never sent to PumpPortal or any RPC. **Use a wallet dedicated to this
+    bot** — not one you also trade from manually or keep meaningful funds
+    in. `python scripts/generate_wallet.py` generates a fresh one offline
+    (no wallet app needed) and prints exactly what to paste into `.env`.
   - `SOLANA_RPC_URL` — get a real (paid) RPC endpoint (Helius, QuickNode,
     Triton, etc.) before going live; the free public endpoint is
     rate-limited and unreliable for anything time-sensitive.
@@ -406,8 +409,9 @@ pumpbot/
     momentum.py                       # early-momentum entry filter
     copytrade.py                       # follow & mirror specific wallets (optional)
 config/pumpbot_settings.yaml    # filters & risk parameters, all in SOL (no secrets)
-scripts/check_pumpbot_setup.py   # pre-flight sanity check
-scripts/pumpbot_dashboard.py      # local trading-activity dashboard + wallet balance
+scripts/generate_wallet.py       # offline: generate a fresh dedicated bot wallet
+scripts/check_pumpbot_setup.py    # pre-flight sanity check
+scripts/pumpbot_dashboard.py       # local trading-activity dashboard + wallet balance
 scripts/seed_pumpbot_demo_trades.py # writes fake demo trades to preview the dashboard
 tests/test_pumpbot_*.py           # pytest unit tests, no network required
 ```
