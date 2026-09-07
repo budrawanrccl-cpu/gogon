@@ -14,12 +14,18 @@ read-only JSON-RPC call (`getBalance`) to your configured Solana RPC every
 this script sends over the network. It never sends your private key
 anywhere; it only ever needs a public wallet address (see
 SOLANA_WALLET_ADDRESS in .env.example).
+
+To check on the bot from another device (e.g. a phone) on the same Wi-Fi,
+set PUMPBOT_DASHBOARD_HOST=0.0.0.0 before running this — see the README's
+"Memantau dari HP" section for the exact steps. Left at its default
+(127.0.0.1), the dashboard is reachable only from this computer.
 """
 from __future__ import annotations
 
 import csv
 import json
 import os
+import socket
 import sys
 import time
 import webbrowser
@@ -37,6 +43,26 @@ load_dotenv()
 
 TRADES_CSV = os.path.join(_ROOT, "data", "pumpbot_trades.csv")
 PORT = int(os.environ.get("PUMPBOT_DASHBOARD_PORT", "8766"))
+# Default stays loopback-only (safe: nothing but this computer can reach it).
+# Set PUMPBOT_DASHBOARD_HOST=0.0.0.0 to also accept connections from other
+# devices on the same local network (e.g. a phone).
+HOST = os.environ.get("PUMPBOT_DASHBOARD_HOST", "127.0.0.1")
+
+
+def _local_lan_ip() -> str | None:
+    """Best-effort guess at this machine's LAN IP, for printing a URL a
+    phone on the same Wi-Fi can use. Doesn't actually send any traffic —
+    connect() on a UDP socket just picks the outbound interface locally.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except Exception:
+        return None
 
 RPC_URL = os.environ.get("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
 WALLET_ADDRESS = os.environ.get("SOLANA_WALLET_ADDRESS") or None
@@ -580,16 +606,32 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    url = f"http://127.0.0.1:{PORT}"
-    print(f"pump.fun dashboard jalan di {url} (Ctrl+C untuk berhenti)")
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    local_url = f"http://127.0.0.1:{PORT}"
+    print(f"pump.fun dashboard jalan di {local_url} (Ctrl+C untuk berhenti)")
+
+    if HOST != "127.0.0.1":
+        lan_ip = _local_lan_ip()
+        if lan_ip:
+            print(f"Bisa diakses dari HP/perangkat lain di WiFi yang sama: http://{lan_ip}:{PORT}")
+        else:
+            print(
+                "[warn] PUMPBOT_DASHBOARD_HOST diset tapi gagal mendeteksi IP LAN — "
+                "cek IP komputer ini manual (ipconfig/ifconfig)."
+            )
+        print(
+            "[info] Dashboard sekarang bisa diakses perangkat lain di jaringan yang "
+            "sama. Ini panel read-only (tidak bisa dipakai untuk trading), tapi "
+            "tetap jangan sambungkan ke WiFi publik/tidak dipercaya selagi ini jalan."
+        )
+
     if not _resolve_wallet_address():
         print(
             "[info] Belum ada SOLANA_WALLET_ADDRESS / SOLANA_PRIVATE_KEY di .env — "
             "panel saldo wallet akan kosong sampai salah satunya diisi."
         )
     try:
-        webbrowser.open(url)
+        webbrowser.open(local_url)
     except Exception:
         pass
     try:

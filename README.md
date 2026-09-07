@@ -279,6 +279,33 @@ python scripts/pumpbot_dashboard.py
 Your real `data/pumpbot_trades.csv` (if any) is backed up first, never
 overwritten silently — the seed script prints how to restore it.
 
+### Memantau dari HP (phone monitoring)
+
+By default the dashboard only answers requests from the computer it runs
+on. To check on it from a phone on the **same Wi-Fi network**, run it with:
+
+```bash
+# Windows PowerShell:
+$env:PUMPBOT_DASHBOARD_HOST="0.0.0.0"; python scripts/pumpbot_dashboard.py
+
+# macOS/Linux:
+PUMPBOT_DASHBOARD_HOST=0.0.0.0 python scripts/pumpbot_dashboard.py
+```
+
+It prints a second URL like `http://192.168.1.23:8766` — open that in your
+phone's browser (phone and computer must be on the same Wi-Fi). Windows may
+prompt to allow Python through the firewall the first time; allow it for
+**private networks**.
+
+This is read-only — a phone visiting it can see activity but cannot place
+trades or change anything. Don't leave `PUMPBOT_DASHBOARD_HOST=0.0.0.0`
+running on a public/untrusted Wi-Fi (a coffee shop, an office you don't
+control), since anyone else on that same network could then also open the
+URL. To check from off your home network entirely (e.g. on mobile data,
+away from home), set up something like [Tailscale](https://tailscale.com)
+(free for personal use) on both the computer and the phone — ask if you
+want a walkthrough for that.
+
 ## Copy-Trading (optional)
 
 A second, independent entry strategy: instead of (or alongside) the
