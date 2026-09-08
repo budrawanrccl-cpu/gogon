@@ -18,7 +18,7 @@ polling_interval_seconds: 2
 # session caps how much you spend on data per run. 20-30 is a reasonable
 # starting point for a test session; set to 0 once you're comfortable
 # leaving it running unattended and are funding the data wallet accordingly.
-max_session_minutes: 20
+max_session_minutes: 0
 
 filters:
   # Don't buy in the first few seconds after a token is created — this bot
