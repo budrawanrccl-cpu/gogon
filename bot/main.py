@@ -54,6 +54,13 @@ def run() -> None:
             "*** LIVE TRADING ENABLED *** Real orders will be placed with real funds. "
             "Ctrl+C to stop between cycles."
         )
+        logger.warning(
+            "*** KNOWN ISSUE *** py-clob-client has been archived by Polymarket and "
+            "its post_order() call currently fails with 'invalid order version, "
+            "please use the latest clob-client' — even the latest published version. "
+            "Signals will be found but live orders will likely fail to submit until "
+            "this bot is migrated to Polymarket's new SDK. See README's Safety notes."
+        )
     else:
         logger.info("Running in PAPER TRADING mode — no real orders will be sent.")
 

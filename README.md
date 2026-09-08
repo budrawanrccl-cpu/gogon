@@ -168,6 +168,21 @@ fast to run anytime.
 
 ## Safety notes
 
+- ⚠️ **`py-clob-client` (this bot's trading library) has been archived by
+  Polymarket and can no longer submit orders.** As of testing in
+  September 2026, market/order-book reads still work, but
+  `client.post_order()` fails with `{'error': 'invalid order version,
+  please use the latest clob-client'}` regardless of which published
+  version is installed — 0.34.6 is the last release and is itself
+  rejected. Polymarket's replacement is the `polymarket-client` package
+  (repo `Polymarket/py-sdk`), which has a different API (`PublicClient`/
+  `SecureClient`, `create_limit_order()` + `place_limit_order()`, and a
+  `token_id` vs `position_id` split between older and newer markets) and
+  is still Beta. **Live trading (`LIVE_TRADING=true`) will not actually
+  place orders until `bot/client.py`, `bot/market_data.py`, and
+  `bot/execution.py` are migrated to that new SDK.** Paper trading is
+  unaffected (it never calls `post_order()`), so it's still fine for
+  watching the strategies run against real market data.
 - **Start in paper mode** and watch `data/trades.csv` / `logs/bot.log` for
   at least a few days before considering live trading.
 - **Start with small caps** in `config/settings.yaml` when you do go live.
