@@ -123,9 +123,12 @@ cleanly.
 ## Dashboard
 
 A local, read-only dashboard shows live trading activity — KPIs, cumulative
-volume chart, strategy breakdown, open positions, and recent trades — read
-straight from `data/trades.csv`. No extra dependencies, nothing leaves your
-machine.
+volume chart, strategy breakdown, open positions, recent trades, and the
+**markets scanned in the bot's most recent cycle** (combined YES+NO ask,
+edge vs. the arbitrage threshold, whether it currently qualifies) — read
+straight from `data/trades.csv` and `data/scan_snapshot.json` (the latter
+is a snapshot of the last cycle only, overwritten every cycle, not a
+history). No extra dependencies, nothing leaves your machine.
 
 ```bash
 # in a second terminal, alongside `python -m bot.main`:

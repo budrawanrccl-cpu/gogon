@@ -35,6 +35,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 TRADES_CSV = os.path.join(_ROOT, "data", "trades.csv")
+SCAN_SNAPSHOT_JSON = os.path.join(_ROOT, "data", "scan_snapshot.json")
 PORT = int(os.environ.get("DASHBOARD_PORT", "8765"))
 HOST = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
 
@@ -56,6 +57,24 @@ def load_trades() -> list[dict]:
         return []
     with open(TRADES_CSV, newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+def load_scan_snapshot() -> dict:
+    """Markets seen in the bot's most recently completed scan cycle.
+
+    Written by bot/main.py every cycle (overwritten, not appended) — this is
+    a live snapshot, not a history. Empty/missing until the bot has
+    completed at least one cycle.
+    """
+    if not os.path.exists(SCAN_SNAPSHOT_JSON):
+        return {"generated_at": None, "markets": []}
+    try:
+        with open(SCAN_SNAPSHOT_JSON, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        # Being read mid-write despite the temp-file+rename in main.py (or
+        # a leftover partial file) — just skip this refresh, next poll retries.
+        return {"generated_at": None, "markets": []}
 
 
 def build_summary(rows: list[dict]) -> dict:
@@ -108,6 +127,14 @@ def build_summary(rows: list[dict]) -> dict:
 
     recent_trades = list(reversed(rows))[:50]
 
+    scan = load_scan_snapshot()
+    scan_markets = sorted(
+        scan.get("markets", []),
+        # Markets closest to triggering a trade first; unpriced ones (no
+        # order book yet) last.
+        key=lambda m: (m.get("edge") is None, -(m.get("edge") or -999)),
+    )
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "total_signals": len(rows),
@@ -120,6 +147,8 @@ def build_summary(rows: list[dict]) -> dict:
         "timeline": timeline,
         "recent_trades": recent_trades,
         "open_positions": sorted(open_positions, key=lambda p: -p["cost_usd"]),
+        "scan_generated_at": scan.get("generated_at"),
+        "scan_markets": scan_markets,
     }
 
 
@@ -248,6 +277,11 @@ INDEX_HTML = """<!doctype html>
   .badge.live { background: rgba(232,179,57,0.18); color: var(--warn); }
   .badge.filled-yes { background: rgba(34,195,166,0.15); color: var(--accent-2); }
   .badge.filled-no { background: rgba(139,147,167,0.15); color: var(--text-dim); }
+  .badge.hit { background: rgba(34,195,166,0.15); color: var(--accent-2); }
+  .badge.miss { background: rgba(139,147,167,0.12); color: var(--text-dim); }
+
+  .panel-sub { font-size: 12px; color: var(--text-dim); margin: -8px 0 14px; }
+  td.market-q { white-space: normal; max-width: 380px; }
 
   .empty {
     color: var(--text-dim);
@@ -292,6 +326,22 @@ INDEX_HTML = """<!doctype html>
   <div class="panel">
     <h2>Per Strategi</h2>
     <div class="bars-wrap" id="strategy-bars"></div>
+  </div>
+</div>
+
+<div class="grid" style="grid-template-columns: 1fr;">
+  <div class="panel">
+    <h2>Market yang Di-scan (siklus terakhir)</h2>
+    <div class="panel-sub" id="scan-sub">belum ada data</div>
+    <div class="table-scroll">
+      <table id="tbl-scan">
+        <thead><tr><th>Market</th><th class="num">Ask YES+NO</th><th class="num">Edge</th><th>Arbitrase?</th><th class="num">Volume 24h</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="empty-scan" hidden>
+        Belum ada siklus scan yang selesai. Jalankan <code>python -m bot.main</code> dan tunggu log "Cycle complete" pertama muncul.
+      </div>
+    </div>
   </div>
 </div>
 
@@ -411,6 +461,35 @@ function renderPositions(rows) {
     </tr>`).join('');
 }
 
+function renderScan(scanGeneratedAt, rows) {
+  const sub = document.getElementById('scan-sub');
+  if (!scanGeneratedAt || rows.length === 0) {
+    sub.textContent = 'belum ada data — menunggu siklus pertama selesai';
+  } else {
+    const ago = Math.max(0, Math.round((Date.now() - new Date(scanGeneratedAt).getTime()) / 1000));
+    sub.textContent = `${rows.length} market di siklus terakhir — selesai ${ago}s lalu`;
+  }
+
+  const tbody = document.querySelector('#tbl-scan tbody');
+  document.getElementById('empty-scan').hidden = rows.length > 0;
+  tbody.innerHTML = rows.map(m => {
+    const ask = m.combined_ask == null ? '&ndash;' : Number(m.combined_ask).toFixed(4);
+    const edge = m.edge == null ? '&ndash;' : Number(m.edge).toFixed(4);
+    const badge = m.meets_threshold
+      ? '<span class="badge hit">memenuhi syarat</span>'
+      : (m.combined_ask == null ? '<span class="badge miss">no order book</span>' : '<span class="badge miss">belum</span>');
+    const q = (m.question || m.market_id || '').toString();
+    return `
+    <tr>
+      <td class="market-q">${q.length > 90 ? q.slice(0, 90) + '…' : q}</td>
+      <td class="num">${ask}</td>
+      <td class="num">${edge}</td>
+      <td>${badge}</td>
+      <td class="num">${fmtUsd(m.volume_usd || 0)}</td>
+    </tr>`;
+  }).join('');
+}
+
 function renderTrades(rows) {
   const tbody = document.querySelector('#tbl-trades tbody');
   document.getElementById('empty-trades').hidden = rows.length > 0;
@@ -437,6 +516,7 @@ async function refresh() {
     renderStrategyChart(d.by_strategy);
     renderPositions(d.open_positions);
     renderTrades(d.recent_trades);
+    renderScan(d.scan_generated_at, d.scan_markets || []);
     statusEl.classList.remove('stale');
     statusText.textContent = 'live — update terakhir ' + new Date().toLocaleTimeString('id-ID');
   } catch (e) {

@@ -1,8 +1,11 @@
 """Entry point: python -m bot.main"""
 from __future__ import annotations
 
+import json
+import os
 import signal as signal_module
 import time
+from datetime import datetime, timezone
 
 from bot.client import build_client
 from bot.config import load_settings
@@ -15,10 +18,30 @@ from bot.strategies import ArbitrageStrategy, ThresholdStrategy
 
 _stop = False
 
+# Snapshot of the markets scanned in the most recently completed cycle, so
+# the dashboard (scripts/dashboard.py) can show what the bot is actually
+# looking at — not just the trades it ends up placing. Overwritten every
+# cycle; not a history log.
+SCAN_SNAPSHOT_PATH = os.path.join("data", "scan_snapshot.json")
+
 
 def _request_stop(signum, frame):
     global _stop
     _stop = True
+
+
+def _write_scan_snapshot(entries: list[dict]) -> None:
+    os.makedirs(os.path.dirname(SCAN_SNAPSHOT_PATH), exist_ok=True)
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "markets": entries,
+    }
+    # Write to a temp file and rename, so the dashboard never reads a
+    # half-written file mid-cycle.
+    tmp_path = SCAN_SNAPSHOT_PATH + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f)
+    os.replace(tmp_path, SCAN_SNAPSHOT_PATH)
 
 
 def run() -> None:
@@ -64,6 +87,7 @@ def run() -> None:
                     book_cache[token_id] = BookLevel(None, None, 0.0, 0.0)
             return book_cache[token_id]
 
+        scan_snapshot: list[dict] = []
         try:
             market_count = 0
             for market in iter_active_markets(client, settings.markets):
@@ -71,6 +95,31 @@ def run() -> None:
                 for strategy in strategies:
                     for sig in strategy.generate_signals(market, get_book):
                         executor.execute(sig)
+
+                # Record what the bot saw for this market, for the dashboard.
+                # For 2-outcome markets this reuses get_book's cache — if the
+                # arbitrage strategy already fetched these books above (the
+                # default), this adds no extra API calls.
+                entry: dict = {
+                    "market_id": market.condition_id,
+                    "question": market.question,
+                    "volume_usd": market.volume_usd,
+                    "liquidity_usd": market.liquidity_usd,
+                    "combined_ask": None,
+                    "edge": None,
+                    "meets_threshold": False,
+                }
+                if len(market.tokens) == 2:
+                    book_a = get_book(market.tokens[0].token_id)
+                    book_b = get_book(market.tokens[1].token_id)
+                    if book_a.best_ask is not None and book_b.best_ask is not None:
+                        combined_ask = book_a.best_ask + book_b.best_ask
+                        edge = 1.0 - combined_ask - settings.arbitrage.fee_buffer
+                        entry["combined_ask"] = round(combined_ask, 4)
+                        entry["edge"] = round(edge, 4)
+                        entry["meets_threshold"] = edge >= settings.arbitrage.min_edge
+                scan_snapshot.append(entry)
+
             logger.info(
                 "Cycle complete: scanned %d markets | open_positions=%d | "
                 "exposure=$%.2f | realized_pnl_today=$%.2f",
@@ -81,6 +130,11 @@ def run() -> None:
             )
         except Exception:
             logger.exception("Unhandled error during scan cycle; continuing")
+        finally:
+            try:
+                _write_scan_snapshot(scan_snapshot)
+            except Exception:
+                logger.exception("Failed to write scan snapshot for dashboard")
 
         if risk.daily_loss_limit_hit:
             logger.warning(
