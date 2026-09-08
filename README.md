@@ -39,6 +39,46 @@ The threshold (mean-reversion) strategy is included as a second option but
 ships **disabled**, because it's directional and can lose money in a
 trending market — only turn it on if you understand that risk.
 
+## Keuntungan menggunakan bot trading di Polymarket
+
+Menjalankan strategi lewat bot ini (bukan manual lewat UI) punya beberapa
+keuntungan konkret:
+
+1. **Kecepatan eksekusi** — peluang arbitrase (YES+NO < $1) di orderbook
+   sering hilang dalam hitungan detik. Bot bisa scan & submit order jauh
+   lebih cepat daripada manusia, dan memakai order fill-or-kill supaya
+   kedua kaki (YES & NO) tereksekusi bersamaan, mengurangi risiko "satu
+   kaki fill, satu kaki tidak".
+2. **Emosi nol, disiplin penuh** — bot menjalankan strategi persis sesuai
+   parameter yang dikonfigurasi (`min_edge`, `fee_buffer`, dll), tidak
+   terpengaruh FOMO, panik, atau balas dendam setelah rugi — sumber
+   kesalahan terbesar trader manual.
+3. **Monitoring 24/7 tanpa lelah** — market Polymarket berjalan terus; bot
+   bisa memantau banyak market sekaligus tanpa henti, sesuatu yang sulit
+   dilakukan manusia sendirian.
+4. **Manajemen risiko otomatis & mengikat** — `risk.max_position_usd`,
+   `risk.max_total_exposure_usd`, dan kill-switch harian
+   `risk.max_daily_loss_usd` dipaksakan di setiap trade, jadi batas
+   kerugian tidak bisa "terlewat sesaat" seperti sering terjadi saat
+   trading manual.
+5. **Bisa diuji tanpa risiko lebih dulu (paper trading)** — dengan
+   `LIVE_TRADING=false`, semua trade disimulasikan memakai data pasar
+   nyata tanpa menyentuh dana sungguhan, sehingga strategi dan parameter
+   bisa divalidasi sebelum live.
+6. **Jejak audit lengkap** — setiap sinyal (fill atau tidak) tercatat di
+   `data/trades.csv`, plus log di `logs/bot.log`, memudahkan evaluasi
+   performa dan rekonsiliasi dibanding trading manual yang jarang
+   tercatat rapi.
+7. **Konsisten & bisa direplikasi** — strategi yang sama berjalan persis
+   sama setiap saat, memudahkan analisis apa yang berhasil dan tidak.
+8. **Skalabilitas** — bot bisa mengevaluasi banyak market sekaligus dalam
+   satu siklus, sesuatu yang tidak praktis dilakukan manual satu per
+   satu.
+
+Ini tidak menghilangkan risiko: risiko eksekusi (partial fill), perubahan
+fee/aturan Polymarket, bug pada strategi, dan risiko pasar tetap ada — lihat
+[Safety notes](#safety-notes). Selalu mulai dari paper mode dan modal kecil.
+
 ## Setup
 
 ```bash
