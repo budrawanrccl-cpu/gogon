@@ -82,7 +82,11 @@ trading:
   # odds. Higher isn't "sniping faster than everyone else" here since entries
   # are already delayed by min_token_age_seconds — it just reduces the odds
   # of a stale/failed transaction on a congested network.
-  priority_fee_sol: 0.0005
+  # Raised from 0.0005 -> 0.001: with the on-chain confirmation check in
+  # execution.py, low-fee transactions on busy tokens were repeatedly
+  # missing inclusion before their blockhash expired ("not confirmed
+  # within timeout") — a missed entry, not a bug, but wasteful.
+  priority_fee_sol: 0.001
   # Which pool/exchange to route through (PumpPortal trade-local param).
   # "pump" = pump.fun bonding curve.
   pool: pump
