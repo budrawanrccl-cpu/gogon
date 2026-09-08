@@ -383,6 +383,41 @@ below):**
   a single fast leader round-trip can open and close a position for you
   within seconds, each incurring its own slippage/priority-fee cost.
 
+## Data costs (read this before leaving the bot running)
+
+`subscribeNewToken` (new-token detection) is free. `subscribeTokenTrade`
+— the per-token buy/sell feed the momentum strategy counts unique buyers
+and volume from — is **metered by PumpPortal**, billed against the SOL
+balance of the wallet linked to your `PUMPPORTAL_API_KEY` (a *separate*
+wallet from your trading wallet, created alongside the API key — see
+Setup above).
+
+**Observed real-world rate: roughly 0.12 SOL/hour** (~0.01 SOL every few
+minutes) while actively tracking pump.fun's normal volume of new tokens.
+At a $100/SOL price that's on the order of **$10+/hour, or $250+/day** if
+left running continuously — compare that to `risk.max_position_sol`
+(0.05 SOL ≈ $5 by default): **the data cost can easily exceed your entire
+trading capital's profit potential**, especially at small position sizes.
+Do the math for your own settings before deciding how long to run it.
+
+Two things in this repo help manage that:
+- **`max_session_minutes`** (config/pumpbot_settings.yaml, default 20):
+  auto-stops the bot after that many minutes so a forgotten terminal
+  doesn't burn data budget all night. Set to `0` to run until Ctrl+C.
+- **Subscriptions are unsubscribed once no longer needed**: the bot only
+  pays for trade data on tokens it's still actively evaluating (not-yet-
+  decided candidates) or currently holding — once a token is decided
+  (bought, disqualified, or aged out) or a position closes, its
+  subscription is dropped instead of silently costing money for the rest
+  of the process's life.
+
+Neither of these makes the underlying per-hour rate cheaper — they just
+stop you from paying for data you don't need. If the cost-vs-position-size
+math above doesn't work for your capital, either raise
+`risk.max_position_sol`/`max_total_exposure_sol` (with more capital and
+more risk to match) or only run short, deliberate sessions rather than
+leaving the bot on continuously.
+
 ## Risks (read this)
 
 - **Most pump.fun tokens are worth ~zero shortly after launch.** Buying

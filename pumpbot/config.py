@@ -90,6 +90,11 @@ class Settings:
     trading: TradingConfig
     copytrade: CopyTradeConfig
     polling_interval_seconds: float = 2.0
+    # Auto-stop after this many minutes (0 = run forever, until Ctrl+C).
+    # Useful because PumpPortal's subscribeTokenTrade data feed is metered —
+    # a short, bounded session caps how much you spend on data per run
+    # instead of needing to remember to Ctrl+C yourself.
+    max_session_minutes: float = 0.0
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -169,6 +174,7 @@ def load_settings(config_path: str | None = None, env_path: str | None = None) -
             blacklist_mints=list(copytrade_raw.get("blacklist_mints", []) or []),
         ),
         polling_interval_seconds=float(raw.get("polling_interval_seconds", 2.0)),
+        max_session_minutes=float(raw.get("max_session_minutes", 0.0)),
     )
 
     if wallet.live_trading and not wallet.private_key:

@@ -28,6 +28,7 @@ def main() -> int:
     print(f"  PumpPortal WS:         {settings.data.ws_url}")
     print(f"  PumpPortal trade API:  {settings.data.trade_api_url}")
     print(f"  Polling interval:      {settings.polling_interval_seconds}s")
+    print(f"  Session auto-stop:     {f'{settings.max_session_minutes:.0f} min' if settings.max_session_minutes > 0 else 'disabled (runs until Ctrl+C)'}")
     print(f"  Entry window:          {settings.filters.min_token_age_seconds}s - {settings.filters.max_token_age_seconds}s")
     print(f"  Min unique buyers:     {settings.filters.min_unique_buyers}")
     print(f"  Max position:          {settings.risk.max_position_sol} SOL")

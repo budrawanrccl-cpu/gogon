@@ -9,6 +9,17 @@
 # bot *acts* on what it has seen.
 polling_interval_seconds: 2
 
+# Auto-stop the bot after this many minutes (0 = run forever, until Ctrl+C).
+# IMPORTANT COST NOTE: PumpPortal's subscribeTokenTrade data feed — the
+# per-token buy/sell data the momentum strategy needs — is metered against
+# the SOL balance of the wallet linked to your PUMPPORTAL_API_KEY. In
+# practice this can burn noticeably faster than your actual trading
+# capital (see the README's cost-vs-position-size math). A short, bounded
+# session caps how much you spend on data per run. 20-30 is a reasonable
+# starting point for a test session; set to 0 once you're comfortable
+# leaving it running unattended and are funding the data wallet accordingly.
+max_session_minutes: 20
+
 filters:
   # Don't buy in the first few seconds after a token is created — this bot
   # is intentionally not a raw creation-block sniper. It waits to see real,

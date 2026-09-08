@@ -85,8 +85,20 @@ def run() -> None:
     signal_module.signal(signal_module.SIGINT, _request_stop)
     signal_module.signal(signal_module.SIGTERM, _request_stop)
 
+    session_start = time.time()
+    if settings.max_session_minutes > 0:
+        logger.info("Session will auto-stop after %.0f minutes.", settings.max_session_minutes)
+
     while not _stop:
         cycle_start = time.time()
+
+        if settings.max_session_minutes > 0 and (cycle_start - session_start) >= settings.max_session_minutes * 60:
+            logger.info(
+                "max_session_minutes (%.0f min) reached — stopping. Open positions, if any, are "
+                "NOT auto-closed; check the dashboard/Solscan before walking away.",
+                settings.max_session_minutes,
+            )
+            break
 
         try:
             for event in feed.drain():
@@ -98,11 +110,15 @@ def run() -> None:
 
             # Track trades (buyer count, volume) for every candidate we've
             # seen but not yet decided on, and for every open position (to
-            # know its current price for exit rules). subscribe_trades is
-            # safe to call every cycle with the full list — the feed dedups
-            # internally and re-subscribes everything after a reconnect.
+            # know its current price for exit rules). sync_trade_subscriptions
+            # is safe to call every cycle with the full current list — it
+            # subscribes newly-relevant mints AND unsubscribes ones that
+            # dropped off the list (decided, or position closed), which
+            # matters for cost: PumpPortal meters this data, so a mint left
+            # subscribed keeps costing money for as long as it stays
+            # subscribed, whether or not the strategy still cares about it.
             watch_mints = [m for m, s in tracker.tokens.items() if not s.decided] + list(risk.positions.keys())
-            feed.subscribe_trades(watch_mints)
+            feed.sync_trade_subscriptions(watch_mints)
 
             tracker.prune(settings.filters.watch_window_seconds)
             _write_watchlist_snapshot(tracker)

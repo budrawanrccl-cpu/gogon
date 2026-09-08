@@ -1,4 +1,62 @@
-from pumpbot.market_data import RawEvent, TokenTracker
+import json
+
+from pumpbot.config import DataConfig
+from pumpbot.market_data import PumpPortalFeed, RawEvent, TokenTracker
+
+
+def make_feed() -> PumpPortalFeed:
+    cfg = DataConfig(ws_url="wss://example.invalid/data", trade_api_url="https://example.invalid/trade", api_key=None)
+    return PumpPortalFeed(cfg)
+
+
+class FakeWs:
+    def __init__(self):
+        self.sent: list[dict] = []
+
+    def send(self, message: str) -> None:
+        self.sent.append(json.loads(message))
+
+
+def test_sync_subscribes_new_mints_when_connected():
+    feed = make_feed()
+    feed._ws = FakeWs()
+    feed.sync_trade_subscriptions(["A", "B"])
+
+    sub_calls = [m for m in feed._ws.sent if m["method"] == "subscribeTokenTrade"]
+    assert len(sub_calls) == 1
+    assert set(sub_calls[0]["keys"]) == {"A", "B"}
+    assert feed._known_tokens == {"A", "B"}
+
+
+def test_sync_unsubscribes_mints_dropped_from_desired_set():
+    feed = make_feed()
+    feed._ws = FakeWs()
+    feed.sync_trade_subscriptions(["A", "B"])
+    feed._ws.sent.clear()
+
+    feed.sync_trade_subscriptions(["B"])  # "A" no longer desired
+
+    unsub_calls = [m for m in feed._ws.sent if m["method"] == "unsubscribeTokenTrade"]
+    assert len(unsub_calls) == 1
+    assert unsub_calls[0]["keys"] == ["A"]
+    assert feed._known_tokens == {"B"}
+
+
+def test_sync_is_noop_when_desired_set_unchanged():
+    feed = make_feed()
+    feed._ws = FakeWs()
+    feed.sync_trade_subscriptions(["A", "B"])
+    feed._ws.sent.clear()
+
+    feed.sync_trade_subscriptions(["A", "B"])
+
+    assert feed._ws.sent == []
+
+
+def test_sync_updates_known_tokens_even_without_connected_socket():
+    feed = make_feed()
+    feed.sync_trade_subscriptions(["A", "B"])  # feed._ws is None — nothing to send yet
+    assert feed._known_tokens == {"A", "B"}
 
 
 def test_snapshot_reflects_create_and_buy_events():

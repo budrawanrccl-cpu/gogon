@@ -238,25 +238,42 @@ class PumpPortalFeed:
         self._thread = threading.Thread(target=run, name="pumpportal-feed", daemon=True)
         self._thread.start()
 
-    def subscribe_trades(self, mints: list[str]) -> None:
-        """Ask the feed to also stream trade events for specific mints
-        (needed to track a candidate token's buyer count / volume after
-        its creation event, and to mark price while a position is open).
+    def sync_trade_subscriptions(self, desired_mints: list[str]) -> None:
+        """Subscribe to trade data for exactly `desired_mints`, unsubscribing
+        from any previously-subscribed mint no longer in that set.
 
-        Safe to call every cycle with the full current watch-list: mints
-        already subscribed are skipped, and if the socket isn't connected
-        yet, the request is queued and sent as soon as it connects.
+        This matters for cost, not just correctness: PumpPortal meters
+        subscribeTokenTrade by event volume, billed against the wallet
+        linked to your API key. A mint left subscribed keeps costing money
+        for as long as it stays subscribed — including long after your own
+        strategy has stopped caring about it (aged out, disqualified, or
+        pruned). Call this every cycle with the *current* watch-list (not-
+        yet-decided candidates + open positions); anything that drops out
+        of that list gets unsubscribed automatically.
+
+        Safe to call every cycle: no-ops if the desired set hasn't changed,
+        and if the socket isn't connected yet, the new subscriptions are
+        queued and sent as soon as it connects (unsubscribes for a
+        not-yet-connected socket are simply dropped — nothing to
+        unsubscribe from yet).
         """
+        desired = set(desired_mints)
         with self._lock:
-            new = [m for m in mints if m not in self._known_tokens]
-            if not new:
-                return
-            self._known_tokens.update(new)
-        if self._ws is not None:
+            to_add = [m for m in desired if m not in self._known_tokens]
+            to_remove = [m for m in self._known_tokens if m not in desired]
+            self._known_tokens = desired
+        if self._ws is None:
+            return
+        if to_add:
             try:
-                self._ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": new[:100]}))
+                self._ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": to_add[:100]}))
             except Exception:
-                logger.exception("Failed to send subscribeTokenTrade for %s", new)
+                logger.exception("Failed to send subscribeTokenTrade for %s", to_add)
+        if to_remove:
+            try:
+                self._ws.send(json.dumps({"method": "unsubscribeTokenTrade", "keys": to_remove[:100]}))
+            except Exception:
+                logger.exception("Failed to send unsubscribeTokenTrade for %s", to_remove)
 
     def subscribe_account_trades(self, wallets: list[str]) -> None:
         """Ask the feed to stream every trade made by specific wallets —
