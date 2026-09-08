@@ -27,11 +27,16 @@ filters:
   min_token_age_seconds: 20
   # Give up on a candidate once it's this old without qualifying — momentum
   # signals go stale fast on pump.fun.
-  max_token_age_seconds: 180
+  # Loosened from 180 -> 240 so the bot enters positions sooner (more
+  # candidates get to qualify before their window closes).
+  max_token_age_seconds: 240
   # Minimum number of distinct wallets that have bought this token.
-  min_unique_buyers: 8
+  # Loosened from 8 -> 5: still requires real, broad-based interest (not
+  # 1-2 wallets), just triggers sooner.
+  min_unique_buyers: 5
   # Minimum total SOL bought (not net) before considering a token.
-  min_buy_volume_sol: 3.0
+  # Loosened from 3.0 -> 1.5.
+  min_buy_volume_sol: 1.5
   # Skip if the creator wallet appears to hold more than this % of supply
   # (rug/insider-dump risk). NOTE: this field is often unavailable from the
   # public feed — when unknown, the bot does NOT skip based on it, so this
