@@ -77,6 +77,45 @@ def get_transaction_sol_delta(
     return (post_lamports - pre_lamports) / 1_000_000_000
 
 
+def get_token_balance(
+    rpc_url: str, owner_address: str, mint_address: str, timeout: float = 15.0
+) -> float:
+    """Return how many units of `mint_address` `owner_address` actually
+    holds right now, via getTokenAccountsByOwner. Ground truth for "did I
+    actually still hold this after a sell" — unlike the trade journal CSV,
+    this reflects real on-chain state regardless of whether a past buy/sell
+    transaction actually confirmed. Returns 0.0 if the wallet has no token
+    account for this mint (never held it, or the account was fully drained
+    and closed).
+    """
+    resp = requests.post(
+        rpc_url,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                owner_address,
+                {"mint": mint_address},
+                {"encoding": "jsonParsed"},
+            ],
+        },
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    if "error" in payload:
+        raise RuntimeError(f"RPC getTokenAccountsByOwner error: {payload['error']}")
+
+    accounts = payload["result"]["value"]
+    total = 0.0
+    for acc in accounts:
+        info = acc["account"]["data"]["parsed"]["info"]
+        ui_amount = info["tokenAmount"]["uiAmount"]
+        total += ui_amount or 0.0
+    return total
+
+
 def send_raw_transaction(rpc_url: str, raw_tx: bytes, timeout: float = 20.0) -> str:
     """Submit a fully-signed transaction via the sendTransaction RPC method.
     Returns the transaction signature. Raises on any RPC-level error.
