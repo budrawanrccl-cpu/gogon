@@ -77,11 +77,30 @@ def _parse_market(raw: dict) -> MarketInfo | None:
     )
 
 
-def iter_active_markets(client, cfg: MarketFilterConfig):
+START_CURSOR = "MA=="
+
+
+def iter_active_markets(
+    client,
+    cfg: MarketFilterConfig,
+    start_cursor: str = START_CURSOR,
+    cursor_out: dict | None = None,
+):
     """Yield tradable MarketInfo objects, paginating through sampling markets.
 
     Applies the whitelist / volume / liquidity filters from config. Stops once
     max_markets_per_cycle markets have been yielded, to bound API usage.
+
+    `start_cursor` lets the caller resume pagination from a previous call
+    instead of always restarting at the beginning — main.py uses this to
+    rotate through the *whole* market list across cycles (200/cycle by
+    default) rather than rescanning the same first N markets forever. If
+    `cursor_out` (a dict) is given, it's set to `{"next": <cursor>}` where
+    <cursor> is where the next call should resume: the position right after
+    what was just scanned, or START_CURSOR if the end of the list was
+    reached (so the next cycle wraps back to the beginning), or
+    `start_cursor` unchanged if this call failed outright (so the next
+    cycle retries the same position rather than skipping it).
     """
     if cfg.whitelist:
         whitelist = set(cfg.whitelist)
@@ -89,22 +108,26 @@ def iter_active_markets(client, cfg: MarketFilterConfig):
         whitelist = None
 
     yielded = 0
-    cursor = "MA=="
+    cursor = start_cursor
     seen_cursors = set()
+    status = "ok"  # "ok" | "end" | "error"
 
     while yielded < cfg.max_markets_per_cycle:
         if cursor in seen_cursors:
-            break  # API looped back; avoid infinite loop
+            status = "end"  # API looped back; avoid infinite loop
+            break
         seen_cursors.add(cursor)
 
         try:
             resp = client.get_sampling_markets(next_cursor=cursor)
         except Exception:
             logger.exception("Failed to fetch sampling markets (cursor=%s)", cursor)
+            status = "error"
             break
 
         data = resp.get("data", []) if isinstance(resp, dict) else []
         if not data:
+            status = "end"
             break
 
         for raw in data:
@@ -129,8 +152,17 @@ def iter_active_markets(client, cfg: MarketFilterConfig):
 
         next_cursor = resp.get("next_cursor") if isinstance(resp, dict) else None
         if not next_cursor or next_cursor == cursor:
+            status = "end"
             break
         cursor = next_cursor
+
+    if cursor_out is not None:
+        if status == "end":
+            cursor_out["next"] = START_CURSOR
+        elif status == "error":
+            cursor_out["next"] = start_cursor
+        else:
+            cursor_out["next"] = cursor
 
 
 def best_levels(book: OrderBookSummary) -> BookLevel:

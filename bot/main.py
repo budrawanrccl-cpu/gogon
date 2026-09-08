@@ -12,7 +12,7 @@ from bot.config import load_settings
 from bot.execution import OrderExecutor
 from bot.journal import TradeJournal
 from bot.logger import setup_logging
-from bot.market_data import BookLevel, best_levels, iter_active_markets
+from bot.market_data import START_CURSOR, BookLevel, best_levels, iter_active_markets
 from bot.risk import RiskManager
 from bot.strategies import ArbitrageStrategy, ThresholdStrategy
 
@@ -73,6 +73,13 @@ def run() -> None:
     signal_module.signal(signal_module.SIGINT, _request_stop)
     signal_module.signal(signal_module.SIGTERM, _request_stop)
 
+    # Where the next cycle's market scan should resume — carried across
+    # cycles so the bot rotates through the whole market list over time
+    # instead of always rescanning the same first max_markets_per_cycle
+    # markets. iter_active_markets wraps this back to START_CURSOR on its
+    # own once it reaches the end of the list.
+    next_cursor = START_CURSOR
+
     while not _stop:
         cycle_start = time.time()
         book_cache: dict[str, BookLevel] = {}
@@ -88,9 +95,12 @@ def run() -> None:
             return book_cache[token_id]
 
         scan_snapshot: list[dict] = []
+        cursor_out: dict = {}
         try:
             market_count = 0
-            for market in iter_active_markets(client, settings.markets):
+            for market in iter_active_markets(
+                client, settings.markets, start_cursor=next_cursor, cursor_out=cursor_out
+            ):
                 market_count += 1
                 for strategy in strategies:
                     for sig in strategy.generate_signals(market, get_book):
@@ -131,6 +141,12 @@ def run() -> None:
         except Exception:
             logger.exception("Unhandled error during scan cycle; continuing")
         finally:
+            # Advance the rotation cursor for next cycle. cursor_out is only
+            # populated if iter_active_markets ran to completion (i.e. the
+            # for loop above wasn't aborted by an exception partway
+            # through) — if it's empty, keep next_cursor unchanged so the
+            # next cycle retries the same starting position.
+            next_cursor = cursor_out.get("next", next_cursor)
             try:
                 _write_scan_snapshot(scan_snapshot)
             except Exception:
