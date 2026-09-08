@@ -78,6 +78,12 @@ def _parse_market(raw: dict) -> MarketInfo | None:
 
 
 START_CURSOR = "MA=="
+# Polymarket's sampling-markets endpoint returns this exact cursor (base64
+# for "-1") to mean "you've reached the end of the list" — it's not a
+# resumable position. Passing it back in as next_cursor gets rejected with
+# a 400 ("next item should be greater than or equal to 0"), so it must be
+# treated the same as an empty/missing next_cursor, not as "keep going".
+END_OF_LIST_CURSOR = "LTE="
 
 
 def iter_active_markets(
@@ -113,6 +119,12 @@ def iter_active_markets(
     status = "ok"  # "ok" | "end" | "error"
 
     while yielded < cfg.max_markets_per_cycle:
+        if cursor == END_OF_LIST_CURSOR:
+            # Defensive: shouldn't happen given the check below, but never
+            # send this sentinel to the API — it's an end marker, not a
+            # valid page to fetch.
+            status = "end"
+            break
         if cursor in seen_cursors:
             status = "end"  # API looped back; avoid infinite loop
             break
@@ -151,7 +163,7 @@ def iter_active_markets(
                 break
 
         next_cursor = resp.get("next_cursor") if isinstance(resp, dict) else None
-        if not next_cursor or next_cursor == cursor:
+        if not next_cursor or next_cursor == cursor or next_cursor == END_OF_LIST_CURSOR:
             status = "end"
             break
         cursor = next_cursor
