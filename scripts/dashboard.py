@@ -7,12 +7,23 @@ Run this alongside the bot (in a second terminal, with venv activated):
 Then open http://127.0.0.1:8765 in your browser (it opens automatically).
 It reads data/trades.csv directly — no extra dependencies, no data sent
 anywhere — and refreshes every few seconds while the bot keeps trading.
+
+To check it from your phone (e.g. iPhone Safari) on the same Wi-Fi network
+as this computer, bind to all interfaces instead of just localhost:
+
+    DASHBOARD_HOST=0.0.0.0 python scripts/dashboard.py
+
+It will print a "network" URL using this machine's LAN IP — open that URL
+on the phone. This only works over the local network (same Wi-Fi/router);
+it does not expose the dashboard to the internet. It's read-only data, but
+avoid doing this on a shared/public Wi-Fi network.
 """
 from __future__ import annotations
 
 import csv
 import json
 import os
+import socket
 import sys
 import webbrowser
 from collections import defaultdict
@@ -25,6 +36,19 @@ if _ROOT not in sys.path:
 
 TRADES_CSV = os.path.join(_ROOT, "data", "trades.csv")
 PORT = int(os.environ.get("DASHBOARD_PORT", "8765"))
+HOST = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
+
+
+def _lan_ip() -> str | None:
+    """Best-effort guess at this machine's LAN IP (no packets actually sent)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
 
 
 def load_trades() -> list[dict]:
@@ -453,11 +477,21 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    url = f"http://127.0.0.1:{PORT}"
-    print(f"Dashboard jalan di {url} (Ctrl+C untuk berhenti)")
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    local_url = f"http://127.0.0.1:{PORT}"
+    print(f"Dashboard jalan di {local_url} (Ctrl+C untuk berhenti)")
+
+    if HOST != "127.0.0.1":
+        lan_ip = _lan_ip()
+        if lan_ip:
+            print(f"Bisa dibuka dari HP (WiFi yang sama): http://{lan_ip}:{PORT}")
+        else:
+            print("Tidak bisa mendeteksi IP LAN otomatis — cek IP komputer ini "
+                  "(mis. `ifconfig` / `ipconfig`) lalu buka http://<IP-itu>:"
+                  f"{PORT} dari HP.")
+
     try:
-        webbrowser.open(url)
+        webbrowser.open(local_url)
     except Exception:
         pass
     try:

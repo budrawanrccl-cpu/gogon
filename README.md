@@ -135,6 +135,24 @@ python scripts/dashboard.py
 It opens `http://127.0.0.1:8765` in your browser automatically and
 refreshes every 5 seconds.
 
+### Viewing it on your phone (e.g. iPhone)
+
+By default the dashboard only listens on `127.0.0.1`, so it's only
+reachable from the same computer. To check it from your phone while it's
+on the **same Wi-Fi network**:
+
+```bash
+DASHBOARD_HOST=0.0.0.0 python scripts/dashboard.py
+```
+
+It will print a network URL like `http://192.168.1.23:8765` — open that
+in Safari on your iPhone. This still runs entirely on your computer and
+is only reachable on your local network, not the internet; it's
+read-only data, but avoid doing this on a shared/public Wi-Fi. To reach
+it over the internet (e.g. mobile data, away from home), put it behind a
+tool like Tailscale or an SSH tunnel rather than exposing the port
+directly.
+
 ## Running tests
 
 ```bash
