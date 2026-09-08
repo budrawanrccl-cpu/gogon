@@ -54,6 +54,7 @@ class OrderExecutor:
         trading_cfg: TradingConfig | None = None,
         wallet_cfg: WalletConfig | None = None,
         keypair=None,
+        should_stop=None,
     ):
         self.risk = risk
         self.journal = journal
@@ -62,6 +63,14 @@ class OrderExecutor:
         self.trading_cfg = trading_cfg
         self.wallet_cfg = wallet_cfg
         self.keypair = keypair  # solders.keypair.Keypair, only set when live
+        # Optional no-arg callable returning True once the caller wants to
+        # stop (e.g. main.py's Ctrl+C flag). Checked inside the retry/confirm
+        # loop below so a stuck trade (a mint that keeps failing to confirm)
+        # doesn't make the bot take minutes to respond to Ctrl+C — without
+        # this, main.py's stop flag is only checked between whole cycles,
+        # and one retry sequence can itself take several minutes (up to
+        # MAX_SUBMIT_ATTEMPTS confirmation timeouts back to back).
+        self.should_stop = should_stop or (lambda: False)
 
     def execute(self, signal: Signal) -> bool:
         if signal.side == "BUY":
@@ -112,6 +121,12 @@ class OrderExecutor:
         # Triton, etc.) if this keeps happening — see the README.
         last_error = ""
         for attempt in range(1, MAX_SUBMIT_ATTEMPTS + 1):
+            if self.should_stop():
+                logger.warning(
+                    "Stopping mid-retry for %s (%s) — user requested shutdown", signal.mint, signal.symbol
+                )
+                return False, ""
+
             tx_sig, error = self._attempt_live_trade(signal)
             if tx_sig:
                 # A signature back from sendTransaction only means the RPC
@@ -123,7 +138,9 @@ class OrderExecutor:
                 # why this matters — this is the fix for real capital
                 # getting spent on "successful" trades that never actually
                 # happened.
-                confirmed, confirm_error = _wait_for_confirmation(self.wallet_cfg.rpc_url, tx_sig)
+                confirmed, confirm_error = _wait_for_confirmation(
+                    self.wallet_cfg.rpc_url, tx_sig, should_stop=self.should_stop
+                )
                 if confirmed:
                     logger.info(
                         "[LIVE] %s %s (%s) ~%.6f SOL — tx=%s confirmed — %s",
@@ -135,7 +152,7 @@ class OrderExecutor:
                 error = f"sent (tx={tx_sig}) but not confirmed: {confirm_error}"
 
             last_error = error
-            if attempt < MAX_SUBMIT_ATTEMPTS:
+            if attempt < MAX_SUBMIT_ATTEMPTS and not self.should_stop():
                 logger.warning(
                     "Live %s attempt %d/%d failed for %s (%s): %s — retrying",
                     signal.side, attempt, MAX_SUBMIT_ATTEMPTS, signal.mint, signal.symbol, error,

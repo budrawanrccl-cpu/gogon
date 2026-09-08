@@ -139,7 +139,11 @@ def get_token_balance(
 
 
 def wait_for_confirmation(
-    rpc_url: str, signature: str, timeout_seconds: float = 30.0, poll_interval: float = 1.0
+    rpc_url: str,
+    signature: str,
+    timeout_seconds: float = 30.0,
+    poll_interval: float = 1.0,
+    should_stop=None,
 ) -> tuple[bool, str]:
     """Poll getSignatureStatuses until `signature` lands on-chain (or the
     timeout expires), and report whether it actually SUCCEEDED.
@@ -188,6 +192,8 @@ def wait_for_confirmation(
                 "not confirmed within timeout — likely dropped (e.g. blockhash expired "
                 "before a leader included it)"
             )
+        if should_stop is not None and should_stop():
+            return False, "stopped by user (Ctrl+C) before confirmation completed"
         time.sleep(poll_interval)
 
 

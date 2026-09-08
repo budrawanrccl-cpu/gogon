@@ -70,6 +70,10 @@ def run() -> None:
         trading_cfg=settings.trading,
         wallet_cfg=settings.wallet,
         keypair=keypair,
+        # Lets a stuck retry/confirmation sequence for one trade notice
+        # Ctrl+C immediately instead of only being checked between whole
+        # cycles — a single trade's retries can otherwise take minutes.
+        should_stop=lambda: _stop,
     )
     strategy = MomentumEntryStrategy(settings.filters, risk)
     copytrade = CopyTradeStrategy(settings.copytrade, risk) if settings.copytrade.enabled else None
