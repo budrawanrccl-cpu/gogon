@@ -33,6 +33,28 @@ from pumpbot.solana_rpc import get_transaction_sol_delta
 TRADES_CSV = os.path.join(_ROOT, "data", "pumpbot_trades.csv")
 
 
+def resolve_wallet_address(wallet_cfg) -> str | None:
+    """Reading transaction balance deltas is read-only and only needs the
+    wallet's PUBLIC address — never the private key. Prefer
+    SOLANA_WALLET_ADDRESS from .env; fall back to deriving it from
+    SOLANA_PRIVATE_KEY only if that's the only thing set (same fallback
+    order as scripts/pumpbot_dashboard.py's _resolve_wallet_address).
+    """
+    env_address = os.environ.get("SOLANA_WALLET_ADDRESS")
+    if env_address:
+        return env_address.strip()
+
+    if not wallet_cfg.private_key:
+        return None
+
+    try:
+        from pumpbot.wallet import load_keypair
+
+        return str(load_keypair(wallet_cfg).pubkey())
+    except Exception:
+        return None
+
+
 def load_trades() -> list[dict]:
     if not os.path.exists(TRADES_CSV):
         return []
@@ -47,19 +69,14 @@ def main() -> int:
         print(f"[FAIL] Could not load configuration: {e}")
         return 1
 
-    if not settings.wallet.private_key:
-        print("[FAIL] SOLANA_PRIVATE_KEY is not set in .env — needed to know which wallet to check.")
+    wallet_address = resolve_wallet_address(settings.wallet)
+    if not wallet_address:
+        print(
+            "[FAIL] Could not determine which wallet to check — set SOLANA_WALLET_ADDRESS "
+            "(public address, no private key needed) or SOLANA_PRIVATE_KEY in .env."
+        )
         return 1
 
-    from pumpbot.wallet import load_keypair
-
-    try:
-        keypair = load_keypair(settings.wallet)
-    except Exception as e:
-        print(f"[FAIL] Could not load signing wallet: {e}")
-        return 1
-
-    wallet_address = str(keypair.pubkey())
     rpc_url = settings.wallet.rpc_url
     print(f"Wallet: {wallet_address}\n")
 
