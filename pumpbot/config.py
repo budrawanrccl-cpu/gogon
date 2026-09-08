@@ -78,7 +78,7 @@ class RiskConfig:
 class TradingConfig:
     slippage_pct: float = 10.0
     priority_fee_sol: float = 0.0005
-    pool: str = "pump"
+    pool: str = "auto"  # "auto" routes correctly whether a token is still on the pump.fun bonding curve or has graduated to PumpSwap
 
 
 @dataclass
@@ -161,7 +161,7 @@ def load_settings(config_path: str | None = None, env_path: str | None = None) -
         trading=TradingConfig(
             slippage_pct=float(trading_raw.get("slippage_pct", 10.0)),
             priority_fee_sol=float(trading_raw.get("priority_fee_sol", 0.0005)),
-            pool=str(trading_raw.get("pool", "pump")),
+            pool=str(trading_raw.get("pool", "auto")),
         ),
         copytrade=CopyTradeConfig(
             enabled=bool(copytrade_raw.get("enabled", False)),

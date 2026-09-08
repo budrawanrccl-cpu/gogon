@@ -88,8 +88,13 @@ trading:
   # within timeout") — a missed entry, not a bug, but wasteful.
   priority_fee_sol: 0.001
   # Which pool/exchange to route through (PumpPortal trade-local param).
-  # "pump" = pump.fun bonding curve.
-  pool: pump
+  # Changed from "pump" (bonding curve only) -> "auto": a token that has
+  # "graduated" off the pump.fun bonding curve to PumpSwap (pump-amm) can
+  # no longer be traded with pool="pump" — every attempt lands but fails
+  # on-chain (or never confirms), which is exactly what was happening to
+  # a stuck SELL that burned fees on retries for 40+ minutes straight.
+  # "auto" routes to whichever pool the token actually trades on now.
+  pool: auto
 
 # Copy-trading: mirror specific wallets' buys/sells, in addition to (or
 # instead of — you can disable the momentum strategy above) the momentum
