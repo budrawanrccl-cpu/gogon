@@ -112,7 +112,7 @@ def main() -> int:
         sign = "+" if delta >= 0 else ""
         print(f"  {side:<4} {symbol:<12} {sign}{delta:.6f} SOL   (tx {sig[:12]}…)")
 
-        time.sleep(0.15)  # be gentle on the RPC endpoint
+        time.sleep(0.4)  # be gentle on the RPC endpoint — the public default is easily rate-limited
 
     if errors:
         print("\nBeberapa transaksi gagal dicek (RPC error / belum final / dsb):")

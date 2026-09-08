@@ -109,7 +109,7 @@ def main() -> int:
         else:
             print(f"  {label:<14} 0 (kosong)")
 
-        time.sleep(0.15)  # be gentle on the RPC endpoint
+        time.sleep(0.4)  # be gentle on the RPC endpoint — the public default is easily rate-limited
 
     print("\n=== Ringkasan ===")
     if still_held:

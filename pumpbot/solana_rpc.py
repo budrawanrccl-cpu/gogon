@@ -11,8 +11,34 @@ https://solana.com/docs/rpc/http for the methods used here.
 from __future__ import annotations
 
 import base64
+import time
 
 import requests
+
+
+def _post_with_retry(rpc_url: str, body: dict, timeout: float, max_retries: int = 5) -> dict:
+    """POST a JSON-RPC request, retrying with exponential backoff on 429
+    (rate limited). Public RPC endpoints (the default,
+    api.mainnet-beta.solana.com) have very tight rate limits — bulk checks
+    like scripts/check_wallet_holdings.py can trip these hard, especially
+    with a low-throughput RPC. A paid RPC (e.g. Helius, via SOLANA_RPC_URL)
+    has much higher limits and rarely needs this, but the retry is cheap
+    insurance either way. Raises the underlying HTTPError if still rate
+    limited after `max_retries` attempts.
+    """
+    delay = 1.0
+    for attempt in range(max_retries + 1):
+        resp = requests.post(rpc_url, json=body, timeout=timeout)
+        if resp.status_code != 429:
+            resp.raise_for_status()
+            return resp.json()
+        if attempt == max_retries:
+            resp.raise_for_status()  # exhausted retries — surface the 429
+        retry_after = resp.headers.get("Retry-After")
+        wait = float(retry_after) if retry_after else delay
+        time.sleep(wait)
+        delay = min(delay * 2, 30.0)
+    raise RuntimeError("unreachable")  # loop always returns or raises above
 
 
 def get_balance_sol(rpc_url: str, address: str, timeout: float = 10.0) -> float:
@@ -48,18 +74,16 @@ def get_transaction_sol_delta(
     not yet finalized, or an invalid signature) or if `wallet_address`
     doesn't appear in the transaction's account keys.
     """
-    resp = requests.post(
+    payload = _post_with_retry(
         rpc_url,
-        json={
+        {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "getTransaction",
             "params": [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
         },
-        timeout=timeout,
+        timeout,
     )
-    resp.raise_for_status()
-    payload = resp.json()
     if "error" in payload:
         raise RuntimeError(f"RPC getTransaction error: {payload['error']}")
     result = payload["result"]
@@ -88,9 +112,9 @@ def get_token_balance(
     account for this mint (never held it, or the account was fully drained
     and closed).
     """
-    resp = requests.post(
+    payload = _post_with_retry(
         rpc_url,
-        json={
+        {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "getTokenAccountsByOwner",
@@ -100,10 +124,8 @@ def get_token_balance(
                 {"encoding": "jsonParsed"},
             ],
         },
-        timeout=timeout,
+        timeout,
     )
-    resp.raise_for_status()
-    payload = resp.json()
     if "error" in payload:
         raise RuntimeError(f"RPC getTokenAccountsByOwner error: {payload['error']}")
 
