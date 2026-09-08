@@ -120,3 +120,62 @@ def test_max_affordable_sol_zero_when_at_max_positions():
     risk = make_risk(max_concurrent_positions=1, max_position_sol=1.0, max_total_exposure_sol=1.0)
     risk.record_open("mintA", "FOO", token_amount=1000.0, cost_sol=0.01)
     assert risk.max_affordable_sol() == 0.0
+
+
+# -- persistence across restarts (state_path) --------------------------
+# Without this, a bot restart (e.g. to pick up a config change) silently
+# "forgot" every open position while the SOL spent on them stayed gone
+# from the wallet — the exact bug that left tokens stuck unsellable.
+
+def test_open_position_survives_a_simulated_restart(tmp_path):
+    from pumpbot.config import RiskConfig
+    from pumpbot.risk import RiskManager
+
+    state_path = str(tmp_path / "risk_state.json")
+    cfg = RiskConfig()
+
+    risk1 = RiskManager(cfg, state_path=state_path)
+    risk1.record_open("mintA", "FOO", token_amount=1000.0, cost_sol=0.05)
+
+    # A fresh RiskManager, as a new bot process would construct on startup.
+    risk2 = RiskManager(cfg, state_path=state_path)
+    assert "mintA" in risk2.positions
+    assert risk2.positions["mintA"].symbol == "FOO"
+    assert risk2.positions["mintA"].token_amount == 1000.0
+    assert abs(risk2.positions["mintA"].cost_sol - 0.05) < 1e-12
+
+
+def test_closed_position_and_realized_pnl_persist(tmp_path):
+    from pumpbot.config import RiskConfig
+    from pumpbot.risk import RiskManager
+
+    state_path = str(tmp_path / "risk_state.json")
+    cfg = RiskConfig()
+
+    risk1 = RiskManager(cfg, state_path=state_path)
+    risk1.record_open("mintA", "FOO", token_amount=1000.0, cost_sol=0.01)
+    risk1.record_close("mintA", token_amount=1000.0, proceeds_sol=0.015)  # +0.005 SOL
+
+    risk2 = RiskManager(cfg, state_path=state_path)
+    assert "mintA" not in risk2.positions  # fully closed — nothing left to restore
+    assert abs(risk2.realized_pnl_today_sol - 0.005) < 1e-12
+
+
+def test_without_state_path_nothing_is_written(tmp_path):
+    """Default behavior (state_path=None) stays pure in-memory — no file
+    is created, matching every existing caller/test that doesn't pass it.
+    """
+    risk = make_risk()
+    risk.record_open("mintA", "FOO", token_amount=1000.0, cost_sol=0.01)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_corrupt_state_file_is_ignored_not_fatal(tmp_path):
+    from pumpbot.config import RiskConfig
+    from pumpbot.risk import RiskManager
+
+    state_path = tmp_path / "risk_state.json"
+    state_path.write_text("not valid json{{{")
+
+    risk = RiskManager(RiskConfig(), state_path=str(state_path))  # must not raise
+    assert risk.positions == {}

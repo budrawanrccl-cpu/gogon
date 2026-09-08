@@ -7,10 +7,15 @@ any real money is at stake.
 """
 from __future__ import annotations
 
+import json
+import logging
+import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
 from pumpbot.config import RiskConfig
+
+logger = logging.getLogger("pumpbot.risk")
 
 
 @dataclass
@@ -30,13 +35,93 @@ class Position:
     def hold_seconds(self) -> float:
         return (datetime.now(timezone.utc) - self.opened_at).total_seconds()
 
+    def to_dict(self) -> dict:
+        return {
+            "mint": self.mint,
+            "symbol": self.symbol,
+            "token_amount": self.token_amount,
+            "cost_sol": self.cost_sol,
+            "peak_price_sol": self.peak_price_sol,
+            "opened_at": self.opened_at.isoformat(),
+        }
+
+    @staticmethod
+    def from_dict(d: dict) -> "Position":
+        return Position(
+            mint=d["mint"],
+            symbol=d["symbol"],
+            token_amount=d["token_amount"],
+            cost_sol=d["cost_sol"],
+            peak_price_sol=d["peak_price_sol"],
+            opened_at=datetime.fromisoformat(d["opened_at"]),
+        )
+
 
 class RiskManager:
-    def __init__(self, cfg: RiskConfig):
+    def __init__(self, cfg: RiskConfig, state_path: str | None = None):
         self.cfg = cfg
         self.positions: dict[str, Position] = {}  # keyed by mint
         self.realized_pnl_today_sol: float = 0.0
         self._day: date = date.today()
+        # Opt-in (None by default, so this stays "pure logic, no IO" for
+        # tests and any other caller that doesn't pass it): when set,
+        # every mutation is persisted to this JSON file and reloaded on
+        # construction. Without this, open positions only ever lived in
+        # this process' memory — a restart (e.g. to pick up a config
+        # change) silently "forgot" every open position while the real
+        # SOL spent on them stayed gone from the wallet, so the bot would
+        # never generate an exit for them again and risk caps would reset
+        # as if nothing were open. main.py passes a real path; scripts
+        # like sell_token.py that build a short-lived RiskManager just to
+        # satisfy OrderExecutor's constructor intentionally don't, since
+        # they sell 100% of actual on-chain holdings regardless of what
+        # any position-tracking file says.
+        self.state_path = state_path
+        if self.state_path:
+            self._load_state()
+
+    def _load_state(self) -> None:
+        if not self.state_path or not os.path.exists(self.state_path):
+            return
+        try:
+            with open(self.state_path, encoding="utf-8") as f:
+                data = json.load(f)
+            self.positions = {mint: Position.from_dict(p) for mint, p in data.get("positions", {}).items()}
+            self.realized_pnl_today_sol = data.get("realized_pnl_today_sol", 0.0)
+            day_str = data.get("day")
+            if day_str:
+                self._day = date.fromisoformat(day_str)
+            if self.positions:
+                logger.info(
+                    "Restored %d open position(s) from %s: %s",
+                    len(self.positions), self.state_path,
+                    ", ".join(f"{m} ({p.symbol})" for m, p in self.positions.items()),
+                )
+        except Exception:
+            logger.exception(
+                "Failed to load persisted risk state from %s — starting with no known open "
+                "positions. If any positions are actually still open, reconcile against your "
+                "wallet's real token balances (scripts/check_wallet_holdings.py) before trusting "
+                "risk caps.",
+                self.state_path,
+            )
+
+    def _save_state(self) -> None:
+        if not self.state_path:
+            return
+        try:
+            os.makedirs(os.path.dirname(self.state_path) or ".", exist_ok=True)
+            tmp_path = self.state_path + ".tmp"
+            data = {
+                "positions": {mint: p.to_dict() for mint, p in self.positions.items()},
+                "realized_pnl_today_sol": self.realized_pnl_today_sol,
+                "day": self._day.isoformat(),
+            }
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.replace(tmp_path, self.state_path)  # atomic — never leaves a half-written file
+        except Exception:
+            logger.exception("Failed to persist risk state to %s", self.state_path)
 
     # -- bookkeeping -------------------------------------------------
     def _roll_day_if_needed(self) -> None:
@@ -44,6 +129,7 @@ class RiskManager:
         if today != self._day:
             self._day = today
             self.realized_pnl_today_sol = 0.0
+            self._save_state()
 
     @property
     def total_exposure_sol(self) -> float:
@@ -121,11 +207,13 @@ class RiskManager:
             existing.token_amount += token_amount
             existing.cost_sol += cost_sol
             existing.peak_price_sol = max(existing.peak_price_sol, price)
+        self._save_state()
 
     def update_peak(self, mint: str, current_price_sol: float) -> None:
         pos = self.positions.get(mint)
         if pos is not None and current_price_sol > pos.peak_price_sol:
             pos.peak_price_sol = current_price_sol
+            self._save_state()
 
     def record_close(self, mint: str, token_amount: float, proceeds_sol: float) -> float:
         """Reduce/close a position, realize P&L, and return the realized P&L (SOL)."""
@@ -144,4 +232,5 @@ class RiskManager:
             del self.positions[mint]
 
         self.realized_pnl_today_sol += pnl
+        self._save_state()
         return pnl

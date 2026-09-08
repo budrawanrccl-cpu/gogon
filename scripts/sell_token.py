@@ -1,15 +1,19 @@
 """Manually sell 100% of your wallet's holdings of a specific token.
 
-Why this exists: pumpbot does not persist open positions across restarts
-(RiskManager starts empty every time `python -m pumpbot.main` runs — see
-README). If a SELL attempt failed (e.g. the BlockhashNotFound issue fixed
-elsewhere in this repo) and the bot was then restarted before it
-succeeded, the bot "forgets" it ever held that token — even though the
-tokens are still sitting in your wallet on-chain. This script sells a
-token by mint address directly, independent of the bot's own tracking,
-using the exact same PumpPortal Local Transaction API path pumpbot uses
-for live trades (fetch unsigned tx -> sign locally -> submit, with
-skipPreflight + retries).
+Why this exists: pumpbot.main persists open positions to
+data/pumpbot_risk_state.json so a restart doesn't forget them — but that
+only covers positions the bot itself opened and is still running to
+track. If a SELL attempt failed (e.g. the BlockhashNotFound issue fixed
+elsewhere in this repo) before that persistence existed, or you're
+selling something the bot never knew about, the bot won't try again on
+its own even though the tokens are still sitting in your wallet
+on-chain. This script sells a token by mint address directly,
+independent of the bot's own tracking, using the exact same PumpPortal
+Local Transaction API path pumpbot uses for live trades (fetch unsigned
+tx -> sign locally -> submit, with skipPreflight + retries). On success
+it also removes the mint from data/pumpbot_risk_state.json if present,
+so a since-restarted bot doesn't keep thinking it's still holding
+something you already sold out here.
 
 Usage:
     python scripts/sell_token.py <mint_address>
@@ -23,6 +27,7 @@ use Phantom/Solflare's built-in swap feature instead.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -35,6 +40,32 @@ from pumpbot.execution import OrderExecutor
 from pumpbot.journal import TradeJournal
 from pumpbot.risk import RiskManager
 from pumpbot.strategies.base import Signal
+
+RISK_STATE_PATH = os.path.join(_ROOT, "data", "pumpbot_risk_state.json")
+
+
+def _remove_from_persisted_risk_state(mint: str) -> None:
+    """Best-effort: drop `mint` from data/pumpbot_risk_state.json if it's
+    there, so a bot restarted later doesn't think it still holds this
+    position. Safe to call even if the file doesn't exist, is malformed,
+    or the bot is currently running and racing a write of its own — this
+    is just cleanup, never load-bearing for the sell itself.
+    """
+    if not os.path.exists(RISK_STATE_PATH):
+        return
+    try:
+        with open(RISK_STATE_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        if mint not in data.get("positions", {}):
+            return
+        del data["positions"][mint]
+        tmp_path = RISK_STATE_PATH + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp_path, RISK_STATE_PATH)
+        print(f"(Juga menghapus {mint} dari data/pumpbot_risk_state.json)")
+    except Exception:
+        pass  # cleanup only — never fail the script over this
 
 
 def main() -> int:
@@ -105,6 +136,7 @@ def main() -> int:
     if filled:
         print("\n[OK] Transaksi berhasil dikirim. Cek data/pumpbot_trades.csv atau logs/pumpbot.log untuk tx signature-nya,")
         print("     lalu verifikasi di https://solscan.io dengan tx signature itu.")
+        _remove_from_persisted_risk_state(args.mint)
         return 0
     else:
         print("\n[FAIL] Gagal setelah beberapa percobaan. Cek logs/pumpbot.log untuk detail errornya:")

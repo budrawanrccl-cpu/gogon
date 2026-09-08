@@ -18,6 +18,7 @@ from pumpbot.strategies import CopyTradeStrategy, MomentumEntryStrategy
 _stop = False
 
 WATCHLIST_PATH = os.path.join("data", "pumpbot_watchlist.json")
+RISK_STATE_PATH = os.path.join("data", "pumpbot_risk_state.json")
 
 
 def _request_stop(signum, frame):
@@ -60,7 +61,7 @@ def run() -> None:
 
         keypair = load_keypair(settings.wallet)
 
-    risk = RiskManager(settings.risk)
+    risk = RiskManager(settings.risk, state_path=RISK_STATE_PATH)
     journal = TradeJournal()
     executor = OrderExecutor(
         risk=risk,
