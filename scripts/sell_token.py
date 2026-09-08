@@ -39,7 +39,7 @@ from pumpbot.strategies.base import Signal
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mint", help="Token mint address to sell 100% of")
+    parser.add_argument("mint", help="Token mint address to sell 100%% of")
     parser.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
     args = parser.parse_args()
 
