@@ -30,6 +30,7 @@ from pumpbot.config import DataConfig, TradingConfig, WalletConfig
 from pumpbot.journal import TradeJournal
 from pumpbot.risk import RiskManager
 from pumpbot.solana_rpc import send_raw_transaction as _send_raw_transaction
+from pumpbot.solana_rpc import wait_for_confirmation as _wait_for_confirmation
 from pumpbot.strategies.base import Signal
 
 logger = logging.getLogger("pumpbot.execution")
@@ -113,12 +114,25 @@ class OrderExecutor:
         for attempt in range(1, MAX_SUBMIT_ATTEMPTS + 1):
             tx_sig, error = self._attempt_live_trade(signal)
             if tx_sig:
-                logger.info(
-                    "[LIVE] %s %s (%s) ~%.6f SOL — tx=%s — %s",
-                    signal.side, signal.mint, signal.symbol, signal.size_sol, tx_sig, signal.reason,
-                )
-                self._record_fill(signal)
-                return True, tx_sig
+                # A signature back from sendTransaction only means the RPC
+                # node accepted it for forwarding — NOT that it landed or
+                # succeeded on-chain (it can still fail while the network
+                # fee is charged, or get dropped if its blockhash expires
+                # before a leader includes it). Confirm before recording
+                # this as a fill; see wait_for_confirmation's docstring for
+                # why this matters — this is the fix for real capital
+                # getting spent on "successful" trades that never actually
+                # happened.
+                confirmed, confirm_error = _wait_for_confirmation(self.wallet_cfg.rpc_url, tx_sig)
+                if confirmed:
+                    logger.info(
+                        "[LIVE] %s %s (%s) ~%.6f SOL — tx=%s confirmed — %s",
+                        signal.side, signal.mint, signal.symbol, signal.size_sol, tx_sig, signal.reason,
+                    )
+                    self._record_fill(signal)
+                    return True, tx_sig
+
+                error = f"sent (tx={tx_sig}) but not confirmed: {confirm_error}"
 
             last_error = error
             if attempt < MAX_SUBMIT_ATTEMPTS:
@@ -181,9 +195,15 @@ class OrderExecutor:
         return tx_sig, ""
 
     def _record_fill(self, signal: Signal) -> None:
-        # NOTE: submission succeeding does not guarantee on-chain confirmation
-        # or the exact fill price/slippage. Reconcile against your wallet's
-        # actual SPL token balances periodically rather than trusting this
+        # Only called after wait_for_confirmation() has verified the
+        # transaction actually confirmed with no on-chain error — this is
+        # NOT called for a submission that merely got a signature back
+        # (see _execute_live). It still doesn't know the *exact* fill
+        # price/slippage (that would need parsing the confirmed tx's token
+        # balance changes), so size_sol/reference_price_sol here are still
+        # the intended amounts, not verified proceeds — reconcile against
+        # your wallet's actual SPL token balances periodically (e.g.
+        # scripts/check_wallet_holdings.py) rather than trusting this
         # alone, same caveat as bot/execution.py for Polymarket.
         price = signal.reference_price_sol or 0.0
         token_amount = signal.size_sol / price if price > 0 else 0.0

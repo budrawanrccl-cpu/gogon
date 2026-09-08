@@ -138,6 +138,59 @@ def get_token_balance(
     return total
 
 
+def wait_for_confirmation(
+    rpc_url: str, signature: str, timeout_seconds: float = 30.0, poll_interval: float = 1.0
+) -> tuple[bool, str]:
+    """Poll getSignatureStatuses until `signature` lands on-chain (or the
+    timeout expires), and report whether it actually SUCCEEDED.
+
+    This is the fix for the gap documented (and left unresolved) in
+    execution.py's old _record_fill(): sendTransaction returning a
+    signature only means the RPC node accepted it for forwarding — it does
+    NOT mean the transaction was included in a block, and even an included
+    transaction can still fail (its instructions revert, e.g. from
+    slippage exceeded) while still charging the network fee. Without this
+    check, a bot would happily record a BUY/SELL as filled — updating risk
+    budget and the position book — for a trade that never actually moved
+    any SOL or tokens, which compounds badly over many trades (risk
+    capacity "frees up" on phantom closes, letting far more real capital
+    get committed than the configured caps allow).
+
+    Returns (True, "") once confirmed with no error. Returns (False, reason)
+    if the transaction lands with an on-chain error, or if it never
+    reaches at least "confirmed" status before the timeout (most likely
+    dropped — e.g. its blockhash expired before a leader included it).
+    """
+    deadline = time.time() + timeout_seconds
+    while True:
+        payload = _post_with_retry(
+            rpc_url,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getSignatureStatuses",
+                "params": [[signature], {"searchTransactionHistory": True}],
+            },
+            timeout=10.0,
+        )
+        if "error" in payload:
+            raise RuntimeError(f"RPC getSignatureStatuses error: {payload['error']}")
+
+        status = payload["result"]["value"][0]
+        if status is not None:
+            if status.get("err") is not None:
+                return False, f"transaction landed but failed on-chain: {status['err']}"
+            if status.get("confirmationStatus") in ("confirmed", "finalized"):
+                return True, ""
+
+        if time.time() >= deadline:
+            return False, (
+                "not confirmed within timeout — likely dropped (e.g. blockhash expired "
+                "before a leader included it)"
+            )
+        time.sleep(poll_interval)
+
+
 def send_raw_transaction(rpc_url: str, raw_tx: bytes, timeout: float = 20.0) -> str:
     """Submit a fully-signed transaction via the sendTransaction RPC method.
     Returns the transaction signature. Raises on any RPC-level error.
