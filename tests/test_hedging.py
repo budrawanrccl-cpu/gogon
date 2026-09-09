@@ -1,0 +1,95 @@
+from bot.config import HedgingConfig, RiskConfig
+from bot.market_data import BookLevel, MarketInfo, TokenInfo
+from bot.risk import RiskManager
+from bot.strategies.hedging import HedgingStrategy
+
+
+def make_market():
+    return MarketInfo(
+        condition_id="mkt1",
+        question="Will X happen?",
+        tokens=[TokenInfo(token_id="tokYES", outcome="YES"), TokenInfo(token_id="tokNO", outcome="NO")],
+        active=True,
+        closed=False,
+    )
+
+
+def make_strategy(trigger_loss_pct=0.10, hedge_ratio=1.0, max_position_usd=100.0, max_total_exposure_usd=100.0):
+    cfg = HedgingConfig(enabled=True, trigger_loss_pct=trigger_loss_pct, hedge_ratio=hedge_ratio)
+    risk = RiskManager(
+        RiskConfig(
+            max_position_usd=max_position_usd,
+            max_total_exposure_usd=max_total_exposure_usd,
+            max_daily_loss_usd=100.0,
+            min_order_size_usd=1.0,
+        )
+    )
+    return HedgingStrategy(cfg, risk), risk
+
+
+def test_no_signal_without_open_position():
+    strat, _ = make_strategy()
+    market = make_market()
+    book = {"tokYES": BookLevel(0.50, 0.51, 100, 100), "tokNO": BookLevel(0.49, 0.50, 100, 100)}
+    assert strat.generate_signals(market, lambda tid: book[tid]) == []
+
+
+def test_no_signal_when_loss_below_trigger():
+    strat, risk = make_strategy(trigger_loss_pct=0.10)
+    market = make_market()
+    # Bought YES at 0.60, now down only ~5% — below the 10% trigger.
+    risk.record_open("mkt1", "tokYES", "YES", size=10.0, cost_usd=6.0)
+    book = {"tokYES": BookLevel(0.56, 0.57, 100, 100), "tokNO": BookLevel(0.42, 0.43, 100, 100)}
+    assert strat.generate_signals(market, lambda tid: book[tid]) == []
+
+
+def test_hedge_signal_on_loss_past_trigger():
+    strat, risk = make_strategy(trigger_loss_pct=0.10, hedge_ratio=1.0)
+    market = make_market()
+    # Bought 10 YES shares at avg 0.60; price has now dropped to a 0.40 mid (~33% loss).
+    risk.record_open("mkt1", "tokYES", "YES", size=10.0, cost_usd=6.0)
+    book = {"tokYES": BookLevel(0.39, 0.41, 100, 100), "tokNO": BookLevel(0.59, 0.61, 100, 100)}
+
+    signals = strat.generate_signals(market, lambda tid: book[tid])
+
+    assert len(signals) == 1
+    sig = signals[0]
+    assert sig.strategy == "hedging"
+    assert sig.side == "BUY"
+    assert sig.outcome == "NO"
+    assert sig.token_id == "tokNO"
+    assert sig.limit_price == 0.61
+    assert sig.size_shares == 10.0  # fully hedge_ratio=1.0 -> match the 10 YES shares
+
+
+def test_no_further_hedge_once_already_matched():
+    strat, risk = make_strategy(trigger_loss_pct=0.10, hedge_ratio=1.0)
+    market = make_market()
+    risk.record_open("mkt1", "tokYES", "YES", size=10.0, cost_usd=6.0)
+    risk.record_open("mkt1", "tokNO", "NO", size=10.0, cost_usd=6.0)  # already hedged 1:1
+    book = {"tokYES": BookLevel(0.39, 0.41, 100, 100), "tokNO": BookLevel(0.59, 0.61, 100, 100)}
+
+    assert strat.generate_signals(market, lambda tid: book[tid]) == []
+
+
+def test_hedge_size_capped_by_liquidity():
+    strat, risk = make_strategy(trigger_loss_pct=0.10, hedge_ratio=1.0)
+    market = make_market()
+    risk.record_open("mkt1", "tokYES", "YES", size=10.0, cost_usd=6.0)
+    # Only 3 shares available on the opposite side's ask.
+    book = {"tokYES": BookLevel(0.39, 0.41, 100, 100), "tokNO": BookLevel(0.59, 0.61, 3, 3)}
+
+    signals = strat.generate_signals(market, lambda tid: book[tid])
+
+    assert len(signals) == 1
+    assert signals[0].size_shares == 3.0
+
+
+def test_disabled_strategy_returns_nothing():
+    cfg = HedgingConfig(enabled=False, trigger_loss_pct=0.10, hedge_ratio=1.0)
+    risk = RiskManager(RiskConfig(max_position_usd=100, max_total_exposure_usd=100, max_daily_loss_usd=100, min_order_size_usd=1))
+    strat = HedgingStrategy(cfg, risk)
+    market = make_market()
+    risk.record_open("mkt1", "tokYES", "YES", size=10.0, cost_usd=6.0)
+    book = {"tokYES": BookLevel(0.39, 0.41, 100, 100), "tokNO": BookLevel(0.59, 0.61, 100, 100)}
+    assert strat.generate_signals(market, lambda tid: book[tid]) == []

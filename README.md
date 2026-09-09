@@ -16,7 +16,8 @@ main loop
   ├─ market_data: scans active markets from the CLOB API
   ├─ strategies:  turn order-book data into buy/sell Signals
   │    ├─ arbitrage  (default, ON)  — buy YES+NO when combined price < $1
-  │    └─ threshold  (default, OFF) — mean-reversion on price swings
+  │    ├─ threshold  (default, OFF) — mean-reversion on price swings
+  │    └─ hedging    (default, OFF) — auto-hedge a losing position by buying the other side
   ├─ risk:        approves/rejects each Signal against position & loss caps
   └─ execution:   simulates the fill (paper) or signs & submits an order (live)
 ```
@@ -38,6 +39,20 @@ fill-or-kill orders) and Polymarket's own fee/rule changes — which is why
 The threshold (mean-reversion) strategy is included as a second option but
 ships **disabled**, because it's directional and can lose money in a
 trending market — only turn it on if you understand that risk.
+
+### Hedging (`strategies.hedging`)
+
+The hedging strategy doesn't open new directional bets — it watches
+positions opened by other strategies (typically `threshold`) and protects
+them. Once a held position's unrealized loss reaches
+`hedging.trigger_loss_pct`, it buys enough shares of the *opposite* outcome
+to bring the pair up to `hedging.hedge_ratio` of the original position
+size. Because a binary market always pays out exactly $1 total across both
+outcomes, a fully hedged pair (`hedge_ratio: 1.0`, matched 1:1) locks in
+whatever loss has already happened instead of letting it grow further as
+the market keeps moving. It ships **disabled**, since it only does
+something useful alongside a directional strategy that leaves single-sided
+positions for it to hedge.
 
 ## Setup
 
@@ -139,6 +154,7 @@ bot/
     base.py                # Signal + Strategy interface
     arbitrage.py            # complete-set arbitrage (default, on)
     threshold.py             # mean-reversion (default, off)
+    hedging.py                # loss-triggered auto-hedge (default, off)
 config/settings.yaml    # strategy & risk parameters (no secrets)
 .env.example             # secrets template (copy to .env)
 scripts/check_setup.py    # pre-flight sanity check

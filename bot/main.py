@@ -11,7 +11,7 @@ from bot.journal import TradeJournal
 from bot.logger import setup_logging
 from bot.market_data import BookLevel, best_levels, iter_active_markets
 from bot.risk import RiskManager
-from bot.strategies import ArbitrageStrategy, ThresholdStrategy
+from bot.strategies import ArbitrageStrategy, HedgingStrategy, ThresholdStrategy
 
 _stop = False
 
@@ -44,6 +44,8 @@ def run() -> None:
         strategies.append(ArbitrageStrategy(settings.arbitrage, risk))
     if settings.threshold.enabled:
         strategies.append(ThresholdStrategy(settings.threshold, risk))
+    if settings.hedging.enabled:
+        strategies.append(HedgingStrategy(settings.hedging, risk))
     if not strategies:
         logger.warning("No strategies enabled in config/settings.yaml — bot will idle.")
 

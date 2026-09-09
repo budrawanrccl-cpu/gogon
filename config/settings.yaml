@@ -43,3 +43,13 @@ strategies:
     buy_drop_pct: 0.08
     # Sell/close when price rises this fraction above the recent average.
     sell_rise_pct: 0.08
+
+  hedging:
+    enabled: false
+    # Unrealized loss fraction on a held position that triggers a hedge
+    # (buying the opposite outcome instead of riding the loss further).
+    trigger_loss_pct: 0.10
+    # Fraction of the original position size to match with the opposite
+    # outcome once triggered. 1.0 = fully hedge (buy an equal number of
+    # opposite-outcome shares, locking in the loss already taken).
+    hedge_ratio: 1.0

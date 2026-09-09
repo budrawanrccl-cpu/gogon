@@ -40,6 +40,18 @@ class ThresholdConfig:
 
 
 @dataclass
+class HedgingConfig:
+    enabled: bool = False
+    # Unrealized loss fraction on a held position that triggers a hedge.
+    trigger_loss_pct: float = 0.10
+    # Fraction of the original position size to match with the opposite
+    # outcome once triggered. 1.0 = fully hedge (buy an equal number of
+    # opposite-outcome shares, locking in the loss already taken instead of
+    # letting it grow further).
+    hedge_ratio: float = 1.0
+
+
+@dataclass
 class WalletConfig:
     private_key: str | None
     chain_id: int
@@ -56,6 +68,7 @@ class Settings:
     risk: RiskConfig
     arbitrage: ArbitrageConfig
     threshold: ThresholdConfig
+    hedging: HedgingConfig
     polling_interval_seconds: int = 15
 
 
@@ -83,6 +96,7 @@ def load_settings(config_path: str | None = None, env_path: str | None = None) -
     strategies_raw = raw.get("strategies", {}) or {}
     arb_raw = strategies_raw.get("arbitrage", {}) or {}
     thr_raw = strategies_raw.get("threshold", {}) or {}
+    hedge_raw = strategies_raw.get("hedging", {}) or {}
 
     wallet = WalletConfig(
         private_key=os.getenv("POLY_PRIVATE_KEY") or None,
@@ -117,6 +131,11 @@ def load_settings(config_path: str | None = None, env_path: str | None = None) -
             lookback_ticks=int(thr_raw.get("lookback_ticks", 20)),
             buy_drop_pct=float(thr_raw.get("buy_drop_pct", 0.08)),
             sell_rise_pct=float(thr_raw.get("sell_rise_pct", 0.08)),
+        ),
+        hedging=HedgingConfig(
+            enabled=bool(hedge_raw.get("enabled", False)),
+            trigger_loss_pct=float(hedge_raw.get("trigger_loss_pct", 0.10)),
+            hedge_ratio=float(hedge_raw.get("hedge_ratio", 1.0)),
         ),
         polling_interval_seconds=int(raw.get("polling_interval_seconds", 15)),
     )
