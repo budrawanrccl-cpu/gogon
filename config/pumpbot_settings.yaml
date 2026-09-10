@@ -21,24 +21,23 @@ polling_interval_seconds: 2
 max_session_minutes: 0
 
 filters:
-  # Don't buy in the first few seconds after a token is created — this bot
-  # is intentionally not a raw creation-block sniper. It waits to see real,
-  # broad-based public buying interest first.
-  min_token_age_seconds: 20
-  # Give up on a candidate once it's this old without qualifying — momentum
-  # signals go stale fast on pump.fun.
-  max_token_age_seconds: 300
   # SNIPE MODE: buy on the first trade seen for a token, no momentum
   # filtering at all. 0 = as early as this strategy can technically enter
   # (it still needs one trade to know a price/market cap — see
   # strategies/momentum.py's None checks — so this is "first trade",
-  # not literally the create instruction itself).
+  # not literally the create instruction itself). This bot was originally
+  # built to deliberately NOT be a raw creation-block sniper (wait for
+  # real, broad-based buying interest first) — this setting overrides
+  # that on purpose.
   #
   # WARNING: this removes essentially all of the bot's protective
   # filtering. Most brand-new pump.fun tokens are rugs/scams with zero
   # real buying interest — this buys them anyway, on no information.
   # max_position_sol below is kept tiny specifically because of this.
   min_token_age_seconds: 0
+  # Give up on a candidate once it's this old without qualifying — momentum
+  # signals go stale fast on pump.fun.
+  max_token_age_seconds: 300
   # SNIPE MODE: no minimum buyer count required (was 3).
   min_unique_buyers: 0
   # SNIPE MODE: no minimum buy volume required (was 0.8).
