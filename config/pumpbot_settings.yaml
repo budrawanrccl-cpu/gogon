@@ -21,27 +21,18 @@ polling_interval_seconds: 2
 max_session_minutes: 0
 
 filters:
-  # SNIPE MODE: buy on the first trade seen for a token, no momentum
-  # filtering at all. 0 = as early as this strategy can technically enter
-  # (it still needs one trade to know a price/market cap — see
-  # strategies/momentum.py's None checks — so this is "first trade",
-  # not literally the create instruction itself). This bot was originally
-  # built to deliberately NOT be a raw creation-block sniper (wait for
-  # real, broad-based buying interest first) — this setting overrides
-  # that on purpose.
-  #
-  # WARNING: this removes essentially all of the bot's protective
-  # filtering. Most brand-new pump.fun tokens are rugs/scams with zero
-  # real buying interest — this buys them anyway, on no information.
-  # max_position_sol below is kept tiny specifically because of this.
-  min_token_age_seconds: 0
+  # Back to the original, strictest settings: don't buy in the first few
+  # seconds after a token is created — this bot is intentionally not a
+  # raw creation-block sniper. It waits to see real, broad-based public
+  # buying interest first.
+  min_token_age_seconds: 20
   # Give up on a candidate once it's this old without qualifying — momentum
   # signals go stale fast on pump.fun.
-  max_token_age_seconds: 300
-  # SNIPE MODE: no minimum buyer count required (was 3).
-  min_unique_buyers: 0
-  # SNIPE MODE: no minimum buy volume required (was 0.8).
-  min_buy_volume_sol: 0
+  max_token_age_seconds: 180
+  # Minimum number of distinct wallets that have bought this token.
+  min_unique_buyers: 8
+  # Minimum total SOL bought (not net) before considering a token.
+  min_buy_volume_sol: 3.0
   # Skip if the creator wallet appears to hold more than this % of supply
   # (rug/insider-dump risk). NOTE: this field is often unavailable from the
   # public feed — when unknown, the bot does NOT skip based on it, so this
@@ -59,11 +50,7 @@ filters:
 
 risk:
   # Max SOL committed to a single token position.
-  # ~1 USDC at SOL~=$104 (2026-09-09) — kept small on purpose since
-  # SNIPE MODE above buys with zero information about the token.
-  # NOTE: this is a fixed SOL amount, not pegged to USD — as SOL's price
-  # moves, this will no longer equal exactly $1. Revisit if it drifts far.
-  max_position_sol: 0.01
+  max_position_sol: 0.05
   # Max SOL committed across all open positions at once.
   max_total_exposure_sol: 0.25
   # Max number of positions open at the same time.
@@ -76,9 +63,7 @@ risk:
   # Sell when price is up this fraction from entry.
   take_profit_pct: 0.5
   # Sell when price is down this fraction from entry.
-  # Raised from 0.25 -> 0.5 per request (cap losses at 50%, matching the
-  # +50% take-profit).
-  stop_loss_pct: 0.5
+  stop_loss_pct: 0.25
   # Once in profit, sell if price falls this fraction from its peak since
   # entry (locks in gains on a reversal without waiting for full stop_loss).
   trailing_stop_pct: 0.15
