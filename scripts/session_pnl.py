@@ -91,6 +91,8 @@ def main() -> int:
 
     per_mint: dict[str, dict] = defaultdict(lambda: {"symbol": "", "delta": 0.0, "trades": 0})
     total_delta = 0.0
+    total_gas = 0.0
+    gas_checked = 0
     errors: list[str] = []
 
     print(f"Mengecek {len(filled_rows)} transaksi on-chain (mohon tunggu)...\n")
@@ -100,7 +102,7 @@ def main() -> int:
         symbol = r["symbol"] or mint[:8] + "…"
         side = r["side"]
         try:
-            delta = get_transaction_sol_delta(rpc_url, sig, wallet_address)
+            delta, fee = get_transaction_sol_delta(rpc_url, sig, wallet_address)
         except Exception as e:
             errors.append(f"  {side:<4} {symbol:<12} sig={sig[:12]}…  [ERROR] {e}")
             continue
@@ -109,8 +111,10 @@ def main() -> int:
         per_mint[mint]["delta"] += delta
         per_mint[mint]["trades"] += 1
         total_delta += delta
+        total_gas += fee
+        gas_checked += 1
         sign = "+" if delta >= 0 else ""
-        print(f"  {side:<4} {symbol:<12} {sign}{delta:.6f} SOL   (tx {sig[:12]}…)")
+        print(f"  {side:<4} {symbol:<12} {sign}{delta:.6f} SOL  (gas {fee:.6f} SOL)  (tx {sig[:12]}…)")
 
         time.sleep(0.4)  # be gentle on the RPC endpoint — the public default is easily rate-limited
 
@@ -126,8 +130,9 @@ def main() -> int:
 
     sign = "+" if total_delta >= 0 else ""
     print(f"\n=== TOTAL P&L sesi (net semua fee jaringan): {sign}{total_delta:.6f} SOL ===")
+    print(f"=== TOTAL GAS terpakai ({gas_checked} transaksi): {total_gas:.6f} SOL ===")
     if errors:
-        print("(Catatan: total di atas TIDAK termasuk transaksi yang gagal dicek — lihat daftar error di atas.)")
+        print("(Catatan: kedua total di atas TIDAK termasuk transaksi yang gagal dicek — lihat daftar error di atas.)")
 
     return 0
 

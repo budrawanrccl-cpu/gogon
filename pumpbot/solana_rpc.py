@@ -60,15 +60,23 @@ def get_balance_sol(rpc_url: str, address: str, timeout: float = 10.0) -> float:
 
 def get_transaction_sol_delta(
     rpc_url: str, signature: str, wallet_address: str, timeout: float = 15.0
-) -> float:
-    """Return the net SOL change (positive or negative) for `wallet_address`
-    in a single confirmed transaction, via the getTransaction RPC method.
+) -> tuple[float, float]:
+    """Return (net_sol_delta, fee_sol) for `wallet_address` in a single
+    confirmed transaction, via the getTransaction RPC method.
 
-    Uses pre/postBalances from the transaction's metadata rather than
-    re-deriving it from instruction data — this is exact and already nets
-    out the network/priority fee (the fee payer's postBalance already
-    reflects it), so summing this across a session's transactions gives an
-    exact realized P&L without needing a "balance before/after" snapshot.
+    net_sol_delta uses pre/postBalances from the transaction's metadata
+    rather than re-deriving it from instruction data — this is exact and
+    already nets out the network/priority fee (the fee payer's
+    postBalance already reflects it), so summing this across a session's
+    transactions gives an exact realized P&L without needing a "balance
+    before/after" snapshot.
+
+    fee_sol is that same transaction's meta.fee (base + priority fee, in
+    lamports, converted to SOL) — pulled from the same response so
+    callers that want "how much did I spend purely on gas" (separate
+    from price movement) don't need a second RPC round-trip. This is
+    charged whenever a transaction lands, whether its instructions
+    succeeded or reverted.
 
     Raises RuntimeError if the transaction isn't found (e.g. wrong network,
     not yet finalized, or an invalid signature) or if `wallet_address`
@@ -98,7 +106,9 @@ def get_transaction_sol_delta(
     meta = result["meta"]
     pre_lamports = meta["preBalances"][idx]
     post_lamports = meta["postBalances"][idx]
-    return (post_lamports - pre_lamports) / 1_000_000_000
+    delta_sol = (post_lamports - pre_lamports) / 1_000_000_000
+    fee_sol = meta["fee"] / 1_000_000_000
+    return delta_sol, fee_sol
 
 
 def get_token_balance(
