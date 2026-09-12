@@ -31,7 +31,7 @@ risk:
   # hedging to act on right after an entry. Only matters if
   # strategies.hedging.enabled is true. 0 = no reserve (hedging only fires
   # once some other position closes and frees up room).
-  hedge_reserve_usd: 0
+  hedge_reserve_usd: 25
 
 strategies:
   arbitrage:
