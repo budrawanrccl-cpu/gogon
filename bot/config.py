@@ -22,6 +22,14 @@ class RiskConfig:
     max_total_exposure_usd: float = 200.0
     max_daily_loss_usd: float = 50.0
     min_order_size_usd: float = 1.0
+    # Dollars of max_total_exposure_usd carved out exclusively for the hedging
+    # strategy. Arbitrage/threshold never touch this slice (see
+    # RiskManager.max_affordable_usd); hedging may use it, and may push a
+    # single market's committed capital above max_position_usd by up to this
+    # amount (see RiskManager.max_hedge_usd). 0.0 = no reserve (default),
+    # which reproduces the old behavior where hedging only fires once some
+    # other position frees up room.
+    hedge_reserve_usd: float = 0.0
 
 
 @dataclass
@@ -120,6 +128,7 @@ def load_settings(config_path: str | None = None, env_path: str | None = None) -
             max_total_exposure_usd=float(risk_raw.get("max_total_exposure_usd", 200.0)),
             max_daily_loss_usd=float(risk_raw.get("max_daily_loss_usd", 50.0)),
             min_order_size_usd=float(risk_raw.get("min_order_size_usd", 1.0)),
+            hedge_reserve_usd=float(risk_raw.get("hedge_reserve_usd", 0.0)),
         ),
         arbitrage=ArbitrageConfig(
             enabled=bool(arb_raw.get("enabled", True)),

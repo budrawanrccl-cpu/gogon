@@ -21,7 +21,7 @@ class OrderExecutor:
 
     def execute(self, signal: Signal) -> bool:
         if signal.side == "BUY":
-            allowed, reason = self.risk.can_open(signal.market_id, signal.size_usd)
+            allowed, reason = self.risk.can_open(signal.market_id, signal.size_usd, is_hedge=signal.is_hedge)
             if not allowed:
                 logger.info("Skipping BUY %s/%s: %s", signal.market_id, signal.outcome, reason)
                 return False

@@ -25,6 +25,13 @@ risk:
   max_daily_loss_usd: 50
   # Polymarket's practical minimum order size.
   min_order_size_usd: 1
+  # USD carved out of max_total_exposure_usd reserved exclusively for the
+  # hedging strategy. Arbitrage/threshold spend their ENTIRE available budget
+  # on every trade, so without a reserve there's usually nothing left for
+  # hedging to act on right after an entry. Only matters if
+  # strategies.hedging.enabled is true. 0 = no reserve (hedging only fires
+  # once some other position closes and frees up room).
+  hedge_reserve_usd: 0
 
 strategies:
   arbitrage:

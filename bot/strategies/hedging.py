@@ -14,6 +14,12 @@ taken is locked in instead of growing.
 This strategy is disabled by default: it only does something useful when
 another strategy (typically `threshold`) is opening single-sided
 directional positions for it to protect.
+
+Sizing uses `RiskManager.max_hedge_usd` rather than `max_affordable_usd`:
+entry strategies (arbitrage/threshold) spend their entire available budget
+on every trade, which otherwise leaves nothing for a hedge to act on
+immediately afterward. Set `risk.hedge_reserve_usd` in config/settings.yaml
+to carve out capital reserved specifically for hedging.
 """
 from __future__ import annotations
 
@@ -80,7 +86,7 @@ class HedgingStrategy:
         if opp_book.best_ask is None or opp_book.best_ask_size <= 0:
             return None
 
-        max_usd = self.risk.max_affordable_usd(market.condition_id)
+        max_usd = self.risk.max_hedge_usd(market.condition_id)
         shares_by_liquidity = min(remaining_shares, opp_book.best_ask_size)
         shares_by_budget = max_usd / opp_book.best_ask if opp_book.best_ask > 0 else 0.0
         shares = min(shares_by_liquidity, shares_by_budget)
@@ -111,4 +117,5 @@ class HedgingStrategy:
             size_shares=shares,
             size_usd=cost_usd,
             reason=reason,
+            is_hedge=True,
         )

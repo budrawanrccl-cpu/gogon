@@ -93,3 +93,42 @@ def test_max_affordable_usd_zero_when_daily_loss_hit():
     risk.record_open("mkt1", "tokA", "YES", size=10.0, cost_usd=10.0)
     risk.record_close("tokA", size=10.0, proceeds_usd=0.0)  # -$10 loss
     assert risk.max_affordable_usd("mkt2") == 0.0
+
+
+def test_can_open_tolerates_floating_point_rounding_at_the_cap():
+    # A proposed_usd a few ULPs over the cap (as can happen from a
+    # shares = usd / price; usd2 = shares * price round-trip) should still
+    # be allowed rather than rejected for an insignificant fraction of a cent.
+    risk = make_risk(max_position_usd=25.0)
+    allowed, _ = risk.can_open("mkt1", 25.0 + 1e-9)
+    assert allowed
+
+
+def test_can_open_still_rejects_meaningfully_over_the_cap():
+    risk = make_risk(max_position_usd=25.0)
+    allowed, reason = risk.can_open("mkt1", 25.01)
+    assert not allowed
+    assert "max_position_usd" in reason
+
+
+def test_max_affordable_usd_leaves_hedge_reserve_untouched():
+    risk = make_risk(max_position_usd=1000.0, max_total_exposure_usd=100.0, hedge_reserve_usd=20.0)
+    # Entry strategies (arbitrage/threshold) should only ever see 100-20=80 of
+    # total room, leaving the reserve for hedging.
+    assert risk.max_affordable_usd("mkt1") == 80.0
+
+
+def test_max_hedge_usd_can_use_the_reserve_and_exceed_max_position_usd():
+    risk = make_risk(max_position_usd=25.0, max_total_exposure_usd=100.0, hedge_reserve_usd=20.0)
+    # threshold spends its entire per-market budget (25) on entry.
+    risk.record_open("mkt1", "tokA", "YES", size=50.0, cost_usd=25.0)
+    assert risk.max_affordable_usd("mkt1") == 0.0  # entry strategies: no room left
+    # hedging can still act, using the 20 reserved for it.
+    assert risk.max_hedge_usd("mkt1") == 20.0
+
+
+def test_max_hedge_usd_still_bounded_by_total_exposure_cap():
+    risk = make_risk(max_position_usd=25.0, max_total_exposure_usd=30.0, hedge_reserve_usd=20.0)
+    risk.record_open("mkt1", "tokA", "YES", size=50.0, cost_usd=25.0)
+    # total room = 30 - 25 = 5, smaller than the 20 reserve -> capped at 5.
+    assert risk.max_hedge_usd("mkt1") == 5.0

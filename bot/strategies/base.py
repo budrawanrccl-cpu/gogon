@@ -19,6 +19,10 @@ class Signal:
     size_usd: float
     reason: str
     group_id: str | None = None  # links multi-leg trades (e.g. both arbitrage legs)
+    # True for a hedging-strategy BUY: tells RiskManager.can_open to check
+    # this order against the hedge-aware caps (see RiskManager.max_hedge_usd)
+    # instead of the entry-strategy caps it was NOT sized against.
+    is_hedge: bool = False
 
 
 GetBook = Callable[[str], BookLevel]

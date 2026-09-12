@@ -85,6 +85,25 @@ def test_hedge_size_capped_by_liquidity():
     assert signals[0].size_shares == 3.0
 
 
+def test_hedge_uses_reserve_when_entry_strategy_exhausted_the_market_cap():
+    # Simulates threshold having just spent its entire per-market budget —
+    # without a hedge reserve, hedging would have $0 room (see
+    # test_no_signal_without_open_position-style scenarios / max_affordable_usd).
+    strat, risk = make_strategy(
+        trigger_loss_pct=0.10, hedge_ratio=1.0, max_position_usd=25.0, max_total_exposure_usd=100.0
+    )
+    risk.cfg.hedge_reserve_usd = 20.0
+    market = make_market()
+    risk.record_open("mkt1", "tokYES", "YES", size=50.0, cost_usd=25.0)  # avg 0.50, at the cap
+    book = {"tokYES": BookLevel(0.39, 0.41, 100, 100), "tokNO": BookLevel(0.59, 0.61, 100, 100)}
+
+    signals = strat.generate_signals(market, lambda tid: book[tid])
+
+    assert len(signals) == 1
+    assert signals[0].outcome == "NO"
+    assert signals[0].size_usd <= 20.0 + 1e-9
+
+
 def test_disabled_strategy_returns_nothing():
     cfg = HedgingConfig(enabled=False, trigger_loss_pct=0.10, hedge_ratio=1.0)
     risk = RiskManager(RiskConfig(max_position_usd=100, max_total_exposure_usd=100, max_daily_loss_usd=100, min_order_size_usd=1))

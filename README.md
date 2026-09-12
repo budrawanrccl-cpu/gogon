@@ -54,6 +54,16 @@ the market keeps moving. It ships **disabled**, since it only does
 something useful alongside a directional strategy that leaves single-sided
 positions for it to hedge.
 
+One subtlety: arbitrage/threshold always spend their *entire* available
+risk budget on every trade, so immediately after a threshold entry there is
+usually **nothing left** for hedging to act on — until some other position
+closes and frees up room. To make hedging actually able to fire right
+after an entry, set `risk.hedge_reserve_usd` to a dollar amount carved out
+of `max_total_exposure_usd` exclusively for hedging; entry strategies never
+touch it, and hedging may use it even if that pushes a single market's
+committed capital above `max_position_usd` (a hedge reduces the risk on a
+position that's already open, rather than adding a new speculative one).
+
 ## Setup
 
 ```bash
