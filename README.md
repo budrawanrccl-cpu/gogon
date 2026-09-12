@@ -124,6 +124,105 @@ fast to run anytime.
   as your first real-world check, and review the code yourself before
   trusting it with funds.
 
+## Crypto Trend-Following Bot (Binance)
+
+A second, independent bot lives in `crypto_bot/` — a long-only trend-following
+system for crypto spot markets on Binance (via [ccxt](https://github.com/ccxt/ccxt),
+so swapping to another ccxt-supported exchange is mostly a config change).
+
+> ⚠️ **Read this before running it.** There is no such thing as a bot that is
+> guaranteed to profit — if there were, nobody would give it away. What
+> follows is a strategy with a long public track record of *positive
+> expectancy over many trades*, not a way to win most trades or every week.
+> Backtest it yourself, paper-trade it, and only then consider real funds.
+
+### The strategy
+
+**Donchian channel breakout with an ATR trailing stop** — the same family of
+rules as the original "Turtle Trading" system:
+
+- **Entry**: buy when price closes above its highest high of the last N bars
+  (`donchian_entry_period`) — a possible new trend forming.
+- **Stop**: initial stop at `entry - atr_stop_mult × ATR`; trails up with
+  price, never down.
+- **Exit**: whichever comes first — the trailing stop, or price closing below
+  its lowest low of the last M bars (`donchian_exit_period`), i.e. the trend
+  looks over.
+- **Optional regime filter**: only take entries when price is at/above a
+  longer-term EMA (`trend_filter_ema_period`), to skip some breakouts in a
+  broader downtrend at the cost of missing some early moves.
+
+Why this and not something claiming a bigger edge: simple trend-following
+breakout rules have decades of public track record across many markets,
+precisely *because* they're simple enough that the edge doesn't fully
+arbitrage away. But that edge shows up as a **low win rate with a few large
+winners paying for many small losers** — expect long streaks of small stopped-
+out losses even when the system is working exactly as designed. It loses
+money in sideways/choppy markets ("whipsaw"). See `crypto_bot/strategy.py`
+for the full reasoning.
+
+Risk is capped by `crypto_bot/risk.py`: every trade risks a fixed fraction of
+equity (`risk_per_trade_pct`, not a fixed dollar amount), plus a daily-loss
+kill switch and a max-drawdown kill switch that stops new entries (existing
+positions keep managing their own stops).
+
+### Setup
+
+```bash
+pip install -r requirements.txt   # adds ccxt on top of the Polymarket bot's deps
+```
+
+`.env` additions (see `.env.example`): `BINANCE_API_KEY` / `BINANCE_API_SECRET`
+are only needed for live trading or Binance testnet order placement — not for
+backtesting or paper trading against public market data. `BINANCE_TESTNET=true`
+is the default; get testnet keys at https://testnet.binance.vision/.
+`CRYPTO_LIVE_TRADING=true` enables real order placement — off by default.
+
+Tune strategy/risk parameters in `config/crypto_settings.yaml`.
+
+### Backtest first — this is the whole point
+
+```bash
+python scripts/run_crypto_backtest.py                              # BTC/USDT, 4h, 1 year
+python scripts/run_crypto_backtest.py --symbol ETH/USDT --timeframe 1h --days 730
+```
+
+Downloads (and locally caches, in `data/ohlcv/`) historical candles and runs
+them through the exact same `strategy.evaluate()` + `RiskManager` code the
+live bot uses, so the backtest isn't a separate code path that quietly
+diverges from what actually trades. Prints trade count, win rate, profit
+factor, max drawdown, and return. **Test several symbols and at least a
+couple of years of data — and remember a good backtest still doesn't
+guarantee future results, since markets change regime.**
+
+Known simplifications (see `crypto_bot/backtest.py` for the full list):
+entries/channel-exits fill at the signal bar's close; stop-outs fill exactly
+at the stop price with no slippage; fees are modeled as a flat round-trip
+percentage.
+
+### Paper trade, then (optionally) go live
+
+```bash
+python scripts/check_crypto_setup.py   # sanity-check config + exchange connectivity
+python -m crypto_bot.main              # paper trading by default — no real orders
+```
+
+Runs the live loop against real market data, simulating fills, so you can
+watch it behave in real time before risking anything. Logs go to
+`logs/crypto_bot.log`; every signal is journaled to `data/crypto_trades.csv`.
+Flip `CRYPTO_LIVE_TRADING=true` (with API keys set) only after you've watched
+it paper-trade for a while and are comfortable with the position sizes
+`risk_per_trade_pct` produces at your configured `starting_equity_usd`.
+
+### Running tests
+
+```bash
+python -m pytest tests/test_crypto_*.py
+```
+
+Covers indicators, strategy signal generation, risk sizing/kill-switches, and
+the backtest engine — all pure logic, no network calls.
+
 ## Project layout
 
 ```
@@ -140,8 +239,24 @@ bot/
     arbitrage.py            # complete-set arbitrage (default, on)
     threshold.py             # mean-reversion (default, off)
 config/settings.yaml    # strategy & risk parameters (no secrets)
+
+crypto_bot/                    # Binance trend-following bot (independent of bot/ above)
+  config.py                     # loads .env + config/crypto_settings.yaml
+  models.py                      # Bar / Signal / Position / ClosedTrade
+  indicators.py                   # EMA, ATR, Donchian channels (pure functions)
+  strategy.py                      # Donchian breakout + ATR trailing stop
+  risk.py                           # fixed-fractional sizing + kill switches
+  backtest.py                       # single-symbol backtest engine
+  exchange.py                        # ccxt wrapper (history fetch + orders)
+  data.py                             # OHLCV caching to data/ohlcv/*.csv
+  journal.py                          # CSV trade log
+  main.py                              # the live/paper trading loop
+config/crypto_settings.yaml    # strategy & risk parameters (no secrets)
+
 .env.example             # secrets template (copy to .env)
-scripts/check_setup.py    # pre-flight sanity check
-scripts/dashboard.py       # local trading-activity dashboard
+scripts/check_setup.py    # Polymarket bot pre-flight sanity check
+scripts/check_crypto_setup.py  # crypto bot pre-flight sanity check
+scripts/run_crypto_backtest.py # fetch history + backtest the crypto bot
+scripts/dashboard.py       # local trading-activity dashboard (Polymarket bot)
 tests/                      # pytest unit tests, no network required
 ```

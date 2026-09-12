@@ -3,3 +3,6 @@ python-dotenv>=1.0.1
 PyYAML>=6.0.1
 requests>=2.31.0
 pytest>=8.0.0
+
+# crypto_bot/ (Binance trend-following bot)
+ccxt>=4.3.0

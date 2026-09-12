@@ -1,0 +1,54 @@
+# Crypto trend-following bot configuration (Binance, via ccxt).
+# Secrets (API key/secret) live in .env, not here.
+
+exchange: binance
+symbol: BTC/USDT
+timeframe: 4h
+
+# How often the live/paper loop polls for new candles, in seconds.
+# Should be well under one bar's duration (e.g. <= 1/10th of the timeframe)
+# so a new closed candle isn't missed by much.
+polling_interval_seconds: 300
+
+strategy:
+  # Entry: buy when close breaks above the highest high of the last N bars.
+  donchian_entry_period: 20
+  # Exit: close the position when close breaks below the lowest low of the
+  # last M bars (trend looks over), even if the trailing stop hasn't hit yet.
+  donchian_exit_period: 10
+  # ATR lookback used both for the initial stop and the trailing stop.
+  atr_period: 14
+  # Initial/trailing stop = close - atr_stop_mult * ATR. Wider = fewer
+  # whipsaw stop-outs but bigger loss per losing trade.
+  atr_stop_mult: 2.0
+  # Regime filter: only take long entries when close is at/above this EMA.
+  # Cuts some whipsaw in choppy/downtrending markets, at the cost of missing
+  # some early breakouts. Set to null/~ to disable.
+  trend_filter_ema_period: 100
+
+risk:
+  # Paper-trading starting balance / backtest starting equity (USD).
+  # For live trading this is just used for position sizing math — the bot
+  # does not read your real exchange balance.
+  starting_equity_usd: 1000
+  # Fraction of current equity risked (distance from entry to stop) on each
+  # trade. This is what actually controls how big a position gets — NOT a
+  # fixed dollar amount — so sizing scales sanely as equity changes.
+  risk_per_trade_pct: 0.01
+  # Kill switch: stop opening new positions for the rest of the UTC day once
+  # realized loss reaches this fraction of equity-at-day-start.
+  max_daily_loss_pct: 0.03
+  # Kill switch: stop opening new positions (does not close existing ones —
+  # their own stops handle that) once drawdown from the equity peak reaches
+  # this. This is your "something is badly wrong, stop trading" switch.
+  max_drawdown_pct: 0.20
+  # Only hold one position at a time by default — simplest to reason about
+  # and to size correctly. Raise only if you also lower risk_per_trade_pct
+  # so total risk-at-once stays sane.
+  max_concurrent_positions: 1
+  # Skip a signal if the resulting order would be smaller than this (USD).
+  min_order_size_usd: 10
+  # Round-trip fee assumption (applied on both entry and exit), e.g. 0.001 =
+  # 0.1% each way (typical Binance spot taker fee). Always model fees —
+  # they matter a lot for a strategy with a sub-50% win rate.
+  fee_pct: 0.001
