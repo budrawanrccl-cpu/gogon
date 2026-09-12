@@ -1,11 +1,19 @@
-"""Simple mean-reversion strategy (disabled by default).
+"""Simple mean-reversion strategy.
 
 Tracks a rolling average of each token's midpoint price. Buys when price
 drops meaningfully below its recent average, and closes the position when
 it rises back above average. Unlike arbitrage this is directional and can
-lose money if a market trends rather than reverts — keep it disabled unless
-you understand and accept that risk, and size it conservatively via
+lose money if a market trends rather than reverts — only run it if you
+understand and accept that risk, and size it conservatively via
 risk.max_position_usd.
+
+The sell rule only closes a position this strategy itself opened
+(`existing.opened_by == self.name`). Without that check, this loop's other
+branch watches BOTH outcome tokens in a market, so a hedge that
+HedgingStrategy bought on the opposite token (to protect a threshold
+position) would look like "our own position that rose 8%+" and get sold
+right back off the next cycle it moved further in threshold's favor —
+unwinding the hedge exactly when it's needed.
 """
 from __future__ import annotations
 
@@ -72,7 +80,12 @@ class ThresholdStrategy:
                             ),
                         )
                     )
-            elif rise_pct >= self.cfg.sell_rise_pct and existing and existing.size > 0:
+            elif (
+                rise_pct >= self.cfg.sell_rise_pct
+                and existing
+                and existing.size > 0
+                and existing.opened_by == self.name
+            ):
                 signals.append(
                     Signal(
                         strategy=self.name,

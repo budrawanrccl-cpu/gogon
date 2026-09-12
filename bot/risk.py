@@ -26,6 +26,12 @@ class Position:
     size: float  # shares held
     cost_usd: float  # total USD spent to acquire this position
     opened_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    # Name of the strategy that first opened this position (set on the first
+    # record_open call, never overwritten by later averaging-down buys). Lets
+    # a strategy avoid managing a position it doesn't own -- e.g. threshold
+    # must not close out a hedge that HedgingStrategy bought on the opposite
+    # token of a market threshold is also watching.
+    opened_by: str = ""
 
     @property
     def avg_price(self) -> float:
@@ -147,11 +153,18 @@ class RiskManager:
         return min(per_market_room, total_room)
 
     # -- fill recording --------------------------------------------------
-    def record_open(self, market_id: str, token_id: str, outcome: str, size: float, cost_usd: float) -> None:
+    def record_open(
+        self, market_id: str, token_id: str, outcome: str, size: float, cost_usd: float, opened_by: str = ""
+    ) -> None:
         existing = self.positions.get(token_id)
         if existing is None:
             self.positions[token_id] = Position(
-                market_id=market_id, token_id=token_id, outcome=outcome, size=size, cost_usd=cost_usd
+                market_id=market_id,
+                token_id=token_id,
+                outcome=outcome,
+                size=size,
+                cost_usd=cost_usd,
+                opened_by=opened_by,
             )
         else:
             existing.size += size

@@ -34,7 +34,12 @@ class OrderExecutor:
     def _execute_paper(self, signal: Signal) -> bool:
         if signal.side == "BUY":
             self.risk.record_open(
-                signal.market_id, signal.token_id, signal.outcome, signal.size_shares, signal.size_usd
+                signal.market_id,
+                signal.token_id,
+                signal.outcome,
+                signal.size_shares,
+                signal.size_usd,
+                opened_by=signal.strategy,
             )
         else:
             self.risk.record_close(signal.token_id, signal.size_shares, signal.size_usd)
@@ -90,7 +95,12 @@ class OrderExecutor:
         if success:
             if signal.side == "BUY":
                 self.risk.record_open(
-                    signal.market_id, signal.token_id, signal.outcome, signal.size_shares, signal.size_usd
+                    signal.market_id,
+                    signal.token_id,
+                    signal.outcome,
+                    signal.size_shares,
+                    signal.size_usd,
+                    opened_by=signal.strategy,
                 )
             else:
                 self.risk.record_close(signal.token_id, signal.size_shares, signal.size_usd)

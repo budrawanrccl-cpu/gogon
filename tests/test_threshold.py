@@ -52,7 +52,7 @@ def test_buy_signal_on_price_drop():
 def test_sell_signal_on_price_rise_when_holding_position():
     strat, risk = make_strategy(lookback=3, sell_rise_pct=0.1)
     market = make_market()
-    risk.record_open("mkt1", "tokYES", "YES", size=10.0, cost_usd=4.0)
+    risk.record_open("mkt1", "tokYES", "YES", size=10.0, cost_usd=4.0, opened_by="threshold")
 
     stable_book = {"tokYES": BookLevel(0.40, 0.41, 100, 100), "tokNO": BookLevel(0.59, 0.60, 100, 100)}
     for _ in range(3):
@@ -64,6 +64,27 @@ def test_sell_signal_on_price_rise_when_holding_position():
     sells = [s for s in signals if s.side == "SELL" and s.outcome == "YES"]
     assert len(sells) == 1
     assert sells[0].size_shares == 10.0
+
+
+def test_does_not_sell_a_position_opened_by_another_strategy():
+    # Regression: threshold watches BOTH tokens in a market. If NO was
+    # bought by hedging (to protect a threshold YES position) and its price
+    # then rises 8%+ above threshold's own rolling average for NO, threshold
+    # must NOT treat that as "our own position, take profit" and sell it --
+    # that would unwind the hedge right when it's needed.
+    strat, risk = make_strategy(lookback=3, sell_rise_pct=0.1)
+    market = make_market()
+    risk.record_open("mkt1", "tokNO", "NO", size=10.0, cost_usd=4.0, opened_by="hedging")
+
+    stable_book = {"tokYES": BookLevel(0.40, 0.41, 100, 100), "tokNO": BookLevel(0.39, 0.40, 100, 100)}
+    for _ in range(3):
+        strat.generate_signals(market, lambda tid: stable_book[tid])
+
+    risen_book = {"tokYES": BookLevel(0.20, 0.21, 100, 100), "tokNO": BookLevel(0.59, 0.60, 100, 100)}
+    signals = strat.generate_signals(market, lambda tid: risen_book[tid])
+
+    sells = [s for s in signals if s.side == "SELL" and s.outcome == "NO"]
+    assert sells == []
 
 
 def test_disabled_strategy_returns_nothing():
