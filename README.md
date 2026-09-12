@@ -1,15 +1,27 @@
-# gogon — Polymarket Auto-Trading Bot
+# gogon — Trading Bots
+
+This repo hosts two independent, paper-trading-by-default bots:
+
+- **[Polymarket auto-trading bot](#polymarket-auto-trading-bot)** (`bot/`) —
+  complete-set arbitrage on Polymarket's CLOB.
+- **[Funding-rate arbitrage bot](#funding-rate-arbitrage-bot-binance)**
+  (`funding_bot/`) — spot + perpetual-futures hedge on Binance that collects
+  funding payments.
+
+They share no code or state and can be run independently.
+
+> ⚠️ **This is trading software. It can lose real money.** Read the whole
+> README, run in paper mode first, and never risk more than you can afford
+> to lose. Nothing here is financial advice.
+
+## Polymarket Auto-Trading Bot
 
 An automated trading bot for [Polymarket](https://polymarket.com) built on
 Polymarket's official CLOB (Central Limit Order Book) API. It scans active
 markets, applies pluggable strategies, and executes trades through a risk
 manager with hard position/exposure/loss caps.
 
-> ⚠️ **This is trading software. It can lose real money.** Read the whole
-> README, run in paper mode first, and never risk more than you can afford
-> to lose. Nothing here is financial advice.
-
-## How it works
+### How it works
 
 ```
 main loop
@@ -39,7 +51,7 @@ The threshold (mean-reversion) strategy is included as a second option but
 ships **disabled**, because it's directional and can lose money in a
 trending market — only turn it on if you understand that risk.
 
-## Setup
+### Setup
 
 ```bash
 python3 -m venv venv
@@ -67,7 +79,7 @@ Tune strategy and risk parameters in `config/settings.yaml` — in
 particular `risk.max_position_usd`, `risk.max_total_exposure_usd`, and
 `risk.max_daily_loss_usd`. Start small.
 
-## Running
+### Running
 
 ```bash
 # Sanity-check config, wallet, and connectivity before running for real:
@@ -80,7 +92,7 @@ python -m bot.main
 Stop any time with `Ctrl+C` — it finishes the current cycle and exits
 cleanly.
 
-## Dashboard
+### Dashboard
 
 A local, read-only dashboard shows live trading activity — KPIs, cumulative
 volume chart, strategy breakdown, open positions, and recent trades — read
@@ -95,17 +107,7 @@ python scripts/dashboard.py
 It opens `http://127.0.0.1:8765` in your browser automatically and
 refreshes every 5 seconds.
 
-## Running tests
-
-```bash
-python -m pytest
-```
-
-Tests cover the pure logic (risk limits, arbitrage sizing/edge detection,
-threshold signal generation) with no network calls, so they're safe and
-fast to run anytime.
-
-## Safety notes
+### Safety notes
 
 - **Start in paper mode** and watch `data/trades.csv` / `logs/bot.log` for
   at least a few days before considering live trading.
@@ -124,24 +126,146 @@ fast to run anytime.
   as your first real-world check, and review the code yourself before
   trusting it with funds.
 
+## Funding-Rate Arbitrage Bot (Binance)
+
+A bot that collects perpetual-futures **funding payments** by holding a
+delta-neutral hedge on Binance: **long spot + short perpetual futures** on
+the same asset. It scans funding rates, opens hedges where the annualized
+funding rate clears a configurable threshold, tracks them until the edge
+decays, and closes them — all through the same paper/live, risk-capped
+structure as the Polymarket bot.
+
+### Why spot + short perp collects funding, risk-free-ish
+
+Perpetual futures use funding payments to keep the perp price anchored to
+the index/spot price. When the funding rate is **positive**, longs pay
+shorts every interval (typically every 8h on Binance, though some symbols
+now use 1h/4h). Going **short the perp** while holding an equal **long
+spot** position is delta-neutral — price moves in spot and perp roughly
+cancel out — so the position's P&L is dominated by the funding payments it
+collects, not by which way the market moves.
+
+The real risks: **execution risk** (one leg fills, the other doesn't —
+mitigated by unwinding the filled leg immediately if the other fails, see
+`funding_bot/execution.py`), **basis risk** (mark price drifting away from
+spot, bounded here by `max_basis_pct`), and the **funding rate itself
+changing or flipping** before you exit (mitigated by `exit_funding_rate_apr`
+hysteresis and ongoing basis checks every cycle). This bot only trades the
+**positive-funding** direction — collecting *negative* funding would require
+shorting spot on margin, which isn't implemented (`allow_negative_funding`
+is a documented no-op placeholder, not a working feature).
+
+### Setup
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env
+```
+
+Edit `.env`:
+- Leave `FUNDING_LIVE_TRADING=false` to run in **paper trading** (fully
+  simulated, no funds at risk, no API key required). This is the default
+  and the recommended starting point.
+- To go live later, you'll need:
+  - `BINANCE_API_KEY` / `BINANCE_API_SECRET` — create these at
+    [Binance API Management](https://www.binance.com/en/my/settings/api-management).
+    Only grant **Spot & Margin Trading** and **Futures** permissions — never
+    **Withdrawals**. **Never commit these or paste them anywhere outside
+    your local `.env`.**
+  - Try `BINANCE_TESTNET=true` first against Binance's public testnet.
+  - Then set `FUNDING_LIVE_TRADING=true`.
+
+Tune strategy and risk parameters in `config/funding_settings.yaml` — in
+particular `risk.max_position_usd`, `risk.max_total_exposure_usd`,
+`funding_arbitrage.min_funding_rate_apr`, and
+`funding_arbitrage.max_basis_pct`. Start small, and start with a manually
+chosen `symbols.whitelist` (e.g. `["BTC", "ETH"]`) rather than
+auto-discovery until you've watched it run for a while.
+
+### Running
+
+```bash
+# Sanity-check config and connectivity before running for real:
+python scripts/check_funding_setup.py
+
+# Run the bot:
+python -m funding_bot.main
+```
+
+Stop any time with `Ctrl+C` — it finishes the current cycle and exits
+cleanly. It does **not** automatically close open hedges on shutdown; the
+next run will pick up where its own bookkeeping left off in-memory only
+(there's no position persistence across restarts yet — see Safety notes).
+
+### Safety notes
+
+- **Start in paper mode**, and on Binance's testnet before mainnet, and
+  watch `data/funding_trades.csv` / `logs/funding_bot.log` for at least a
+  few funding intervals before considering live trading with real funds.
+- **Position state is in-memory only.** If the bot restarts while a hedge
+  is open, it forgets about it — the real position still exists on Binance,
+  but the bot will no longer manage or unwind it for you. Reconcile against
+  your Binance account before and after any restart.
+- The bot enforces a **daily loss kill-switch**
+  (`risk.max_daily_loss_usd`, tracking price P&L *and* collected funding):
+  once hit, it stops opening new positions until UTC midnight. It does not
+  automatically close existing positions for you.
+- Funding accrual in this bot is an **estimate** based on observed funding
+  rates and settlement timestamps, not Binance's actual income ledger —
+  periodically reconcile against Binance's Futures **Income History**
+  before trusting the numbers for anything beyond a rough read.
+- Only **one open position per symbol** is supported at a time.
+- This code has not been run against the live Binance API from this
+  environment (outbound network here is sandboxed) — treat
+  `scripts/check_funding_setup.py` as your first real-world check, and
+  review the code yourself before trusting it with funds.
+
+## Running tests
+
+```bash
+python -m pytest
+```
+
+Covers both bots' pure logic (risk limits, arbitrage sizing/edge detection,
+funding-rate hedge entry/exit, threshold signal generation) with no network
+calls, so it's safe and fast to run anytime.
+
 ## Project layout
 
 ```
-bot/
-  config.py          # loads .env + config/settings.yaml
-  client.py           # wraps py-clob-client's ClobClient
-  market_data.py       # market discovery + order book parsing
-  risk.py               # position/exposure/loss limits
-  execution.py           # paper vs. live order execution
-  journal.py              # CSV trade log
-  main.py                  # the scan-evaluate-execute loop
+bot/                        # Polymarket bot
+  config.py                   # loads .env + config/settings.yaml
+  client.py                    # wraps py-clob-client's ClobClient
+  market_data.py                 # market discovery + order book parsing
+  risk.py                          # position/exposure/loss limits
+  execution.py                      # paper vs. live order execution
+  journal.py                          # CSV trade log
+  main.py                               # the scan-evaluate-execute loop
   strategies/
-    base.py                # Signal + Strategy interface
-    arbitrage.py            # complete-set arbitrage (default, on)
-    threshold.py             # mean-reversion (default, off)
-config/settings.yaml    # strategy & risk parameters (no secrets)
-.env.example             # secrets template (copy to .env)
-scripts/check_setup.py    # pre-flight sanity check
-scripts/dashboard.py       # local trading-activity dashboard
-tests/                      # pytest unit tests, no network required
+    base.py                             # Signal + Strategy interface
+    arbitrage.py                         # complete-set arbitrage (default, on)
+    threshold.py                          # mean-reversion (default, off)
+config/settings.yaml           # Polymarket bot strategy & risk parameters
+
+funding_bot/                 # Funding-rate arbitrage bot
+  config.py                    # loads .env + config/funding_settings.yaml
+  client.py                     # builds ccxt Binance spot + USDT-M futures clients
+  market_data.py                 # funding-rate/price discovery
+  risk.py                          # position/exposure/loss limits + funding accrual
+  execution.py                      # paper vs. live two-leg (spot+perp) execution
+  journal.py                          # CSV trade + funding-settlement log
+  main.py                               # the scan-evaluate-execute loop
+  strategies/
+    base.py                             # Signal/Leg types
+    funding_arbitrage.py                 # spot+perp hedge entry/exit (default, on)
+config/funding_settings.yaml   # funding bot strategy & risk parameters
+
+.env.example                # secrets template for both bots (copy to .env)
+scripts/check_setup.py         # Polymarket bot pre-flight sanity check
+scripts/check_funding_setup.py # funding bot pre-flight sanity check
+scripts/dashboard.py            # local trading-activity dashboard (Polymarket bot)
+tests/                            # pytest unit tests for both bots, no network required
 ```

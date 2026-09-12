@@ -1,0 +1,49 @@
+# Strategy and risk configuration for the funding-rate arbitrage bot
+# (Binance spot + USDT-M perpetual futures).
+# Secrets (API key/secret) live in .env, not here.
+
+# How often the bot scans funding rates, in seconds. Funding settles at most
+# every few hours, so this doesn't need to be as tight as the Polymarket bot.
+polling_interval_seconds: 60
+
+symbols:
+  # Base assets to trade, e.g. ["BTC", "ETH"]. Leave empty to auto-discover
+  # the highest-funding-rate symbols instead.
+  whitelist: []
+  # Used only when whitelist is empty: scan the top N USDT-M perp symbols
+  # ranked by |funding rate|.
+  auto_discover_top_n: 10
+  quote_asset: USDT
+  # How often (in polling cycles) to refresh the auto-discovered symbol list.
+  rediscover_every_cycles: 30
+
+risk:
+  # Max USD notional committed to a single symbol's hedge at any time.
+  max_position_usd: 100
+  # Max USD notional committed across all open hedges at any time.
+  max_total_exposure_usd: 500
+  # Bot stops opening new positions for the day once realized price P&L
+  # plus/minus collected funding reaches this loss (resets at UTC midnight).
+  max_daily_loss_usd: 50
+  # Practical minimum order size on Binance (varies by symbol; a safe floor).
+  min_order_size_usd: 10
+
+funding_arbitrage:
+  enabled: true
+  # Minimum annualized funding rate (APR), net of fee_buffer_apr, required to
+  # open a position. E.g. 0.15 = at least 15% APR.
+  min_funding_rate_apr: 0.15
+  # Exit once net APR falls below this — lower than the entry threshold on
+  # purpose (hysteresis), so the bot doesn't flip-flop in/out of a position
+  # right around the entry line.
+  exit_funding_rate_apr: 0.03
+  # Estimated round-trip trading-fee/slippage drag, expressed as an APR and
+  # subtracted from the observed funding APR before comparing to thresholds.
+  fee_buffer_apr: 0.02
+  # Skip opening (or unwind an open position) if |mark - spot| / spot exceeds
+  # this — a wide basis means the hedge is imprecise and unwind risk is higher.
+  max_basis_pct: 0.005
+  # Placeholder only — see funding_bot/config.py. This bot does not currently
+  # implement spot margin borrowing, so negative funding rates are always
+  # skipped regardless of this flag.
+  allow_negative_funding: false
