@@ -51,3 +51,22 @@ class TradeJournal:
                     signal.reason,
                 ]
             )
+
+
+def load_fills(path: str) -> list[dict]:
+    """Read every successfully-filled BUY/SELL row from a trade journal CSV,
+    sorted chronologically.
+
+    RiskManager tracks positions purely in memory (see risk.py) -- nothing
+    is reloaded from disk on its own. Feed this into
+    `RiskManager.restore_from_fills` at startup so restarting the bot
+    process doesn't "forget" positions (and hedges) that are still open,
+    even though nothing changed on Polymarket itself. Returns [] if the
+    journal doesn't exist yet (first run).
+    """
+    if not os.path.exists(path):
+        return []
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = [r for r in csv.DictReader(f) if (r.get("filled") or "").strip().lower() == "true"]
+    rows.sort(key=lambda r: r["timestamp"])
+    return rows

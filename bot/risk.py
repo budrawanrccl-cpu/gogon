@@ -188,3 +188,57 @@ class RiskManager:
 
         self.realized_pnl_today += pnl
         return pnl
+
+    # -- startup recovery --------------------------------------------------
+    def restore_from_fills(self, fills: list[dict]) -> None:
+        """Reconstruct positions (and today's realized P&L) from a trade
+        journal's fill history — rows shaped like bot.journal.FIELDS,
+        already filtered to filled=="True" and sorted chronologically (see
+        `bot.journal.load_fills`).
+
+        RiskManager otherwise starts every process with empty state. Without
+        this, restarting the bot (crash, redeploy, manual restart) makes it
+        "forget" every open position and hedge even though nothing changed
+        on Polymarket itself — the next cycle would then size new trades and
+        check caps against a wallet it thinks is empty. Call once at
+        startup, before the first scan cycle.
+
+        Only today's (UTC) closes are added to realized_pnl_today, matching
+        the daily-loss kill switch's own reset-at-UTC-midnight semantics —
+        a loss realized yesterday must not count against today's limit.
+        """
+        self._roll_day_if_needed()
+        today = datetime.now(timezone.utc).date()
+
+        for f in fills:
+            token_id = f["token_id"]
+            size = float(f["size_shares"])
+            usd = float(f["size_usd"])
+
+            if f["side"] == "BUY":
+                self.record_open(
+                    f["market_id"], token_id, f["outcome"], size, usd, opened_by=f.get("strategy", "")
+                )
+                continue
+
+            # SELL: replay the same average-cost math as record_close, but
+            # only attribute the P&L to today's counter if the fill actually
+            # happened today -- record_close itself always counts against
+            # "today" (correct for live fills, wrong for historical replay).
+            pos = self.positions.get(token_id)
+            if pos is None or pos.size <= 0:
+                continue
+            sell_size = min(size, pos.size)
+            cost_basis = pos.avg_price * sell_size
+            pnl = usd - cost_basis
+            pos.size -= sell_size
+            pos.cost_usd -= cost_basis
+            if pos.size <= 1e-9:
+                del self.positions[token_id]
+
+            try:
+                fill_date = datetime.fromisoformat(f["timestamp"]).date()
+            except (KeyError, ValueError):
+                fill_date = today  # malformed/missing timestamp: err on counting it
+            if fill_date == today:
+                self.realized_pnl_today += pnl

@@ -7,7 +7,7 @@ import time
 from bot.client import build_client
 from bot.config import load_settings
 from bot.execution import OrderExecutor
-from bot.journal import TradeJournal
+from bot.journal import TradeJournal, load_fills
 from bot.logger import setup_logging
 from bot.market_data import BookLevel, best_levels, iter_active_markets
 from bot.risk import RiskManager
@@ -38,6 +38,20 @@ def run() -> None:
     risk = RiskManager(settings.risk)
     journal = TradeJournal()
     executor = OrderExecutor(client, risk, journal, live=settings.wallet.live_trading)
+
+    # RiskManager only ever tracks state in memory -- reload it from the
+    # journal so a restart doesn't "forget" positions (and hedges) that are
+    # still genuinely open, even though nothing changed on Polymarket itself.
+    fills = load_fills(journal.path)
+    if fills:
+        risk.restore_from_fills(fills)
+        logger.info(
+            "Restored state from %s: %d open position(s) | exposure=$%.2f | realized_pnl_today=$%.2f",
+            journal.path,
+            len(risk.positions),
+            risk.total_exposure_usd,
+            risk.realized_pnl_today,
+        )
 
     strategies = []
     if settings.arbitrage.enabled:
