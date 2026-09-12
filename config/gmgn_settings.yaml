@@ -1,0 +1,58 @@
+# Smart-money screener configuration for gmgn.ai.
+# Secrets (Telegram/Discord tokens, optional Cloudflare cookie) live in .env.
+
+# Chain to screen: "sol" (Solana) is where gmgn.ai's smart-money tagging is
+# richest; "eth", "bsc", "base", and "tron" are also supported by gmgn.ai.
+chain: sol
+
+# gmgn.ai's rank/swaps window: 1m, 5m, 1h, 6h, or 24h.
+time_period: 24h
+# How many tokens to pull per cycle (from the smart-money-ranked leaderboard).
+tokens_limit: 50
+# How often to run a full scan cycle, in seconds.
+poll_interval_seconds: 60
+
+seen_cache_path: data/gmgn_seen.json
+signals_journal_path: data/gmgn_signals.csv
+
+api:
+  base_url: https://gmgn.ai
+  # Override via GMGN_USER_AGENT / GMGN_COOKIE in .env if gmgn.ai's
+  # Cloudflare bot-protection starts returning 403s.
+  request_timeout_seconds: 10
+  min_request_interval_seconds: 1.5
+  max_retries: 3
+
+screener:
+  # Minimum smart-money buy transactions in the period.
+  min_smart_buy_24h: 3
+  # Minimum net smart-money buys (smart_buy_24h - smart_sell_24h) in the period.
+  min_net_smart_buys: 2
+  # Skip tokens with less liquidity than this (USD) — avoids illiquid rugs.
+  min_liquidity_usd: 5000
+  # Skip tokens with fewer holders than this.
+  min_holder_count: 50
+  # Optional market-cap band. 0 = no bound.
+  min_market_cap_usd: 0
+  max_market_cap_usd: 0
+  # Optional safety filters based on gmgn.ai's reported tax/sniper/holder-quality
+  # fields. 0 = disabled (not enforced).
+  max_buy_tax_pct: 0
+  max_sell_tax_pct: 0
+  max_sniper_count: 0
+  min_bluechip_owner_pct: 0
+  # Skip tokens gmgn.ai flags as a honeypot.
+  exclude_honeypot: true
+  # Require the contract's mint/owner authority to be renounced.
+  require_renounced: false
+  # Kept for forward compatibility with endpoints/fields gmgn.ai doesn't
+  # reliably return today on the rank/swaps endpoint (top-10 holder
+  # concentration, pair-creation timestamp) — harmless no-ops until then.
+  max_top_10_holder_pct: 40
+  max_token_age_minutes: 1440
+
+notify:
+  # Always log signals to the console/log file.
+  console: true
+  # Don't re-alert the same token within this many minutes.
+  cooldown_minutes: 60
