@@ -43,7 +43,7 @@ strategies:
     fee_buffer: 0.005
 
   threshold:
-    enabled: false
+    enabled: true
     # Number of recent midpoint samples used to compute the reference average.
     lookback_ticks: 20
     # Buy when price drops this fraction below the recent average.
@@ -52,7 +52,7 @@ strategies:
     sell_rise_pct: 0.08
 
   hedging:
-    enabled: false
+    enabled: true
     # Unrealized loss fraction on a held position that triggers a hedge
     # (buying the opposite outcome instead of riding the loss further).
     trigger_loss_pct: 0.10

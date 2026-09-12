@@ -15,9 +15,9 @@ manager with hard position/exposure/loss caps.
 main loop
   ├─ market_data: scans active markets from the CLOB API
   ├─ strategies:  turn order-book data into buy/sell Signals
-  │    ├─ arbitrage  (default, ON)  — buy YES+NO when combined price < $1
-  │    ├─ threshold  (default, OFF) — mean-reversion on price swings
-  │    └─ hedging    (default, OFF) — auto-hedge a losing position by buying the other side
+  │    ├─ arbitrage  (ON)  — buy YES+NO when combined price < $1
+  │    ├─ threshold  (ON)  — mean-reversion on price swings
+  │    └─ hedging    (ON)  — auto-hedge a losing position by buying the other side
   ├─ risk:        approves/rejects each Signal against position & loss caps
   └─ execution:   simulates the fill (paper) or signs & submits an order (live)
 ```
@@ -36,9 +36,11 @@ risk (one leg fills, the other doesn't — mitigated here by using
 fill-or-kill orders) and Polymarket's own fee/rule changes — which is why
 `min_edge` and `fee_buffer` exist as safety margins in the config.
 
-The threshold (mean-reversion) strategy is included as a second option but
-ships **disabled**, because it's directional and can lose money in a
-trending market — only turn it on if you understand that risk.
+The threshold (mean-reversion) strategy is included as a second option.
+Unlike arbitrage, it's **directional and can lose money in a trending
+market** — it ships enabled in `config/settings.yaml` in this repo, but
+only run it if you understand and accept that risk; set
+`strategies.threshold.enabled: false` to turn it back off.
 
 ### Hedging (`strategies.hedging`)
 
@@ -50,9 +52,10 @@ to bring the pair up to `hedging.hedge_ratio` of the original position
 size. Because a binary market always pays out exactly $1 total across both
 outcomes, a fully hedged pair (`hedge_ratio: 1.0`, matched 1:1) locks in
 whatever loss has already happened instead of letting it grow further as
-the market keeps moving. It ships **disabled**, since it only does
-something useful alongside a directional strategy that leaves single-sided
-positions for it to hedge.
+the market keeps moving. It ships enabled alongside `threshold` in this
+repo, since it only does something useful next to a directional strategy
+that leaves single-sided positions for it to hedge — set
+`strategies.hedging.enabled: false` to turn it back off.
 
 One subtlety: arbitrage/threshold always spend their *entire* available
 risk budget on every trade, so immediately after a threshold entry there is
