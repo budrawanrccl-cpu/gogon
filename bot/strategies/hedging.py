@@ -66,6 +66,15 @@ class HedgingStrategy:
     def _maybe_hedge(self, market, primary_token, primary_pos, opposite_token, opposite_pos, get_book):
         if primary_pos is None or primary_pos.size <= 0 or primary_pos.avg_price <= 0:
             return None
+        # Never hedge a position that is itself a hedge. Without this, once
+        # the directional position a hedge was protecting gets closed (e.g.
+        # threshold takes profit), the leftover hedge looks like an ordinary
+        # losing position the next time the market moves against it -- and
+        # this strategy would "protect" it by buying back the other side,
+        # ping-ponging capital between both outcomes with no directional
+        # position left to actually protect.
+        if primary_pos.opened_by == self.name:
+            return None
 
         # Already hedged up to the configured ratio? Nothing to do.
         already_hedged_size = opposite_pos.size if opposite_pos else 0.0

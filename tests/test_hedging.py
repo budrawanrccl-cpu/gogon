@@ -104,6 +104,23 @@ def test_hedge_uses_reserve_when_entry_strategy_exhausted_the_market_cap():
     assert signals[0].size_usd <= 20.0 + 1e-9
 
 
+def test_never_hedges_a_position_that_is_itself_a_hedge():
+    # Regression: once the directional position a hedge was protecting gets
+    # closed (e.g. threshold takes profit), the leftover hedge must not be
+    # treated as a fresh position worth protecting -- that would ping-pong
+    # capital between both outcomes with nothing left to actually protect.
+    strat, risk = make_strategy(trigger_loss_pct=0.10, hedge_ratio=1.0)
+    market = make_market()
+    # NO was opened by hedging; the YES position it was protecting is gone
+    # (closed elsewhere). NO has since moved sharply against its own avg price.
+    risk.record_open("mkt1", "tokNO", "NO", size=40.0, cost_usd=24.0, opened_by="hedging")  # avg 0.60
+    book = {"tokYES": BookLevel(0.69, 0.71, 100, 100), "tokNO": BookLevel(0.29, 0.31, 100, 100)}
+
+    signals = strat.generate_signals(market, lambda tid: book[tid])
+
+    assert signals == []
+
+
 def test_disabled_strategy_returns_nothing():
     cfg = HedgingConfig(enabled=False, trigger_loss_pct=0.10, hedge_ratio=1.0)
     risk = RiskManager(RiskConfig(max_position_usd=100, max_total_exposure_usd=100, max_daily_loss_usd=100, min_order_size_usd=1))
