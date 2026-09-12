@@ -30,6 +30,19 @@ leaving it open indefinitely as an unmanaged naked position. (Simplification:
 token, not from a tracked link to the specific position this hedge was
 opened against -- adequate for this codebase's usage, since a token's
 Position is a single blended balance, not per-lot.)
+
+Note: `trigger_loss_pct` is measured against the current mid, while entry
+strategies buy at the ask. In a wide-spread market this means a position
+can already read as "down" by a meaningful percentage the moment it's
+opened -- before the market has genuinely moved at all -- and hedging can
+fire in the very same cycle as the entry. This is intentional (confirmed
+via live paper-mode observation, not just theory): mark-to-mid is the
+position's real current value regardless of *why* it's below cost, and
+protecting a bad fill immediately is defensible risk management. Wanting
+hedging to react only to genuine post-entry price movement, rather than
+entry-time spread, would need a deliberate change here (e.g. a minimum
+position age, or comparing against the entry price instead of the live
+mid) -- not the current behavior.
 """
 from __future__ import annotations
 
