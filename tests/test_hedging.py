@@ -104,17 +104,49 @@ def test_hedge_uses_reserve_when_entry_strategy_exhausted_the_market_cap():
     assert signals[0].size_usd <= 20.0 + 1e-9
 
 
-def test_never_hedges_a_position_that_is_itself_a_hedge():
-    # Regression: once the directional position a hedge was protecting gets
-    # closed (e.g. threshold takes profit), the leftover hedge must not be
-    # treated as a fresh position worth protecting -- that would ping-pong
-    # capital between both outcomes with nothing left to actually protect.
+def test_orphaned_hedge_gets_closed_when_protected_position_is_gone():
+    # The YES position hedging was protecting has since been closed
+    # (e.g. threshold sold it); NO -- opened by hedging -- is now orphaned
+    # and should be sold at market rather than left open indefinitely.
+    strat, risk = make_strategy()
+    market = make_market()
+    risk.record_open("mkt1", "tokNO", "NO", size=40.0, cost_usd=24.0, opened_by="hedging")
+    book = {"tokYES": BookLevel(0.69, 0.71, 100, 100), "tokNO": BookLevel(0.29, 0.31, 100, 100)}
+
+    signals = strat.generate_signals(market, lambda tid: book[tid])
+
+    assert len(signals) == 1
+    sig = signals[0]
+    assert sig.side == "SELL"
+    assert sig.outcome == "NO"
+    assert sig.size_shares == 40.0
+    assert sig.limit_price == 0.29
+
+
+def test_hedge_not_closed_while_still_protecting_an_active_position():
     strat, risk = make_strategy(trigger_loss_pct=0.10, hedge_ratio=1.0)
     market = make_market()
-    # NO was opened by hedging; the YES position it was protecting is gone
-    # (closed elsewhere). NO has since moved sharply against its own avg price.
-    risk.record_open("mkt1", "tokNO", "NO", size=40.0, cost_usd=24.0, opened_by="hedging")  # avg 0.60
-    book = {"tokYES": BookLevel(0.69, 0.71, 100, 100), "tokNO": BookLevel(0.29, 0.31, 100, 100)}
+    risk.record_open("mkt1", "tokYES", "YES", size=10.0, cost_usd=6.0, opened_by="threshold")
+    risk.record_open("mkt1", "tokNO", "NO", size=10.0, cost_usd=6.0, opened_by="hedging")
+    # Stable book: no new hedge needed (already matched) and nothing orphaned.
+    book = {"tokYES": BookLevel(0.59, 0.61, 100, 100), "tokNO": BookLevel(0.39, 0.41, 100, 100)}
+
+    signals = strat.generate_signals(market, lambda tid: book[tid])
+
+    assert signals == []
+
+
+def test_never_hedges_a_position_that_is_itself_a_hedge():
+    # Regression: a hedge that has itself moved against its own avg price
+    # must not be treated as a fresh directional position worth protecting
+    # -- that would ping-pong capital between both outcomes. Unlike the
+    # orphaned-hedge case, the position it's protecting (YES) is still
+    # active here, so the only question is whether NO gets "hedged" too.
+    strat, risk = make_strategy(trigger_loss_pct=0.10, hedge_ratio=1.0)
+    market = make_market()
+    risk.record_open("mkt1", "tokYES", "YES", size=10.0, cost_usd=6.0, opened_by="threshold")  # avg 0.60, not down
+    risk.record_open("mkt1", "tokNO", "NO", size=40.0, cost_usd=24.0, opened_by="hedging")  # avg 0.60, down hard
+    book = {"tokYES": BookLevel(0.59, 0.61, 100, 100), "tokNO": BookLevel(0.29, 0.31, 100, 100)}
 
     signals = strat.generate_signals(market, lambda tid: book[tid])
 

@@ -20,6 +20,16 @@ entry strategies (arbitrage/threshold) spend their entire available budget
 on every trade, which otherwise leaves nothing for a hedge to act on
 immediately afterward. Set `risk.hedge_reserve_usd` in config/settings.yaml
 to carve out capital reserved specifically for hedging.
+
+When the position a hedge was protecting gets closed (e.g. threshold takes
+profit and sells), the hedge is left with nothing to protect -- an
+"orphaned" hedge. This strategy auto-closes it at market the moment that
+happens, realizing whatever P&L it has and freeing the capital, rather than
+leaving it open indefinitely as an unmanaged naked position. (Simplification:
+"orphaned" is judged from whether *any* position remains on the opposite
+token, not from a tracked link to the specific position this hedge was
+opened against -- adequate for this codebase's usage, since a token's
+Position is a single blended balance, not per-lot.)
 """
 from __future__ import annotations
 
@@ -52,6 +62,14 @@ class HedgingStrategy:
         pos_b = self.risk.positions.get(token_b.token_id)
 
         signals: list[Signal] = []
+        for hedge_token, hedge_pos, other_pos in (
+            (token_a, pos_a, pos_b),
+            (token_b, pos_b, pos_a),
+        ):
+            signal = self._maybe_close_orphaned_hedge(market, hedge_token, hedge_pos, other_pos, get_book)
+            if signal is not None:
+                signals.append(signal)
+
         for primary_token, primary_pos, opposite_token, opposite_pos in (
             (token_a, pos_a, token_b, pos_b),
             (token_b, pos_b, token_a, pos_a),
@@ -62,6 +80,36 @@ class HedgingStrategy:
             if signal is not None:
                 signals.append(signal)
         return signals
+
+    def _maybe_close_orphaned_hedge(self, market, hedge_token, hedge_pos, other_pos, get_book):
+        if hedge_pos is None or hedge_pos.size <= 0 or hedge_pos.opened_by != self.name:
+            return None
+        # Still protecting an active position on the other side -- leave it.
+        if other_pos is not None and other_pos.size > 0:
+            return None
+
+        book = get_book(hedge_token.token_id)
+        if book.best_bid is None or book.best_bid <= 0:
+            return None
+
+        reason = (
+            f"closing orphaned {hedge_token.outcome} hedge: the position it was "
+            f"protecting is gone; selling {hedge_pos.size:.2f} shares @ {book.best_bid:.3f}"
+        )
+        logger.info("Orphaned hedge in market %s: %s — %s", market.condition_id, market.question, reason)
+
+        return Signal(
+            strategy=self.name,
+            market_id=market.condition_id,
+            token_id=hedge_token.token_id,
+            outcome=hedge_token.outcome,
+            side="SELL",
+            limit_price=book.best_bid,
+            size_shares=hedge_pos.size,
+            size_usd=hedge_pos.size * book.best_bid,
+            reason=reason,
+            is_hedge=True,
+        )
 
     def _maybe_hedge(self, market, primary_token, primary_pos, opposite_token, opposite_pos, get_book):
         if primary_pos is None or primary_pos.size <= 0 or primary_pos.avg_price <= 0:
